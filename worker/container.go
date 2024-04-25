@@ -17,8 +17,8 @@ const (
 
 type RunnerContainer struct {
 	RunnerContainerConfig
-
-	Client *ClientWithResponses
+	inFlight int
+	Client   *ClientWithResponses
 }
 
 type RunnerEndpoint struct {

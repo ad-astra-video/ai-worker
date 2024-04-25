@@ -327,6 +327,7 @@ func (w *Worker) Warm(ctx context.Context, pipeline string, modelID string, endp
 	name := dockerContainerName(pipeline, modelID)
 	if endpoint.URL != "" {
 		name = cfg.Endpoint.URL
+		slog.Info("name of container: ", slog.String("url", cfg.Endpoint.URL))
 	}
 	slog.Info("Starting external container", slog.String("name", name), slog.String("pipeline", pipeline), slog.String("modelID", modelID))
 	w.externalContainers[name] = rc
@@ -368,12 +369,15 @@ func (w *Worker) HasCapacity(pipeline, modelID string) bool {
 func (w *Worker) borrowContainer(ctx context.Context, pipeline, modelID string) (*RunnerContainer, error) {
 	w.mu.Lock()
 
-	for _, rc := range w.externalContainers {
+	for key, rc := range w.externalContainers {
 		if rc.Pipeline == pipeline && rc.ModelID == modelID {
-			w.mu.Unlock()
-			// We allow concurrent in-flight requests for external containers and assume that it knows
-			// how to handle them
-			return rc, nil
+			// The current implementation of ai-runner containers does not have a queue so only do one request at a time to each container
+			slog.Info("selecting container to run request", slog.Int("type", int(rc.Type)), slog.Int("inFlight", rc.inFlight), slog.String("url", rc.Endpoint.URL))
+			if rc.inFlight == 0 {
+				w.mu.Unlock()
+				w.externalContainers[key].inFlight = 1
+				return rc, nil
+			}
 		}
 	}
 
@@ -383,10 +387,19 @@ func (w *Worker) borrowContainer(ctx context.Context, pipeline, modelID string) 
 }
 
 func (w *Worker) returnContainer(rc *RunnerContainer) {
+	slog.Info("returning container to be available", slog.Int("type", int(rc.Type)), slog.String("url", rc.Endpoint.URL))
+
 	switch rc.Type {
 	case Managed:
 		w.manager.Return(rc)
 	case External:
-		// Noop because we allow concurrent in-flight requests for external containers
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		//free external container for next request
+		for key, rc := range w.externalContainers {
+			if w.externalContainers[key].Endpoint.URL == rc.Endpoint.URL {
+				w.externalContainers[key].inFlight = 0
+			}
+		}
 	}
 }
