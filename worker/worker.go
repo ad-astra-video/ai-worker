@@ -372,10 +372,10 @@ func (w *Worker) borrowContainer(ctx context.Context, pipeline, modelID string) 
 	for key, rc := range w.externalContainers {
 		if rc.Pipeline == pipeline && rc.ModelID == modelID {
 			// The current implementation of ai-runner containers does not have a queue so only do one request at a time to each container
-			slog.Info("selecting container to run request", slog.Int("type", int(rc.Type)), slog.Int("inFlight", rc.inFlight), slog.String("url", rc.Endpoint.URL))
-			if rc.inFlight == 0 {
+			slog.Info("selecting container to run request", slog.Int("type", int(rc.Type)), slog.Int("capacity", rc.Capacity), slog.String("url", rc.Endpoint.URL))
+			if rc.Capacity > 0 {
 				w.mu.Unlock()
-				w.externalContainers[key].inFlight = 1
+				w.externalContainers[key].Capacity -= 1
 				return rc, nil
 			}
 		}
@@ -398,7 +398,7 @@ func (w *Worker) returnContainer(rc *RunnerContainer) {
 		//free external container for next request
 		for key, rc := range w.externalContainers {
 			if w.externalContainers[key].Endpoint.URL == rc.Endpoint.URL {
-				w.externalContainers[key].inFlight = 0
+				w.externalContainers[key].Capacity += 1
 			}
 		}
 	}
