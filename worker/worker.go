@@ -40,22 +40,24 @@ func (sb EnvValue) String() string {
 type OptimizationFlags map[string]EnvValue
 
 type Worker struct {
-	manager *DockerManager
+	manager              *DockerManager
+	useManagedContainers bool
 
 	externalContainers map[string]*RunnerContainer
 	mu                 *sync.Mutex
 }
 
-func NewWorker(containerImageID string, gpus []string, modelDir string) (*Worker, error) {
+func NewWorker(containerImageID string, gpus []string, modelDir string, useManagedContainers bool) (*Worker, error) {
 	manager, err := NewDockerManager(containerImageID, gpus, modelDir)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Worker{
-		manager:            manager,
-		externalContainers: make(map[string]*RunnerContainer),
-		mu:                 &sync.Mutex{},
+		manager:              manager,
+		useManagedContainers: useManagedContainers,
+		externalContainers:   make(map[string]*RunnerContainer),
+		mu:                   &sync.Mutex{},
 	}, nil
 }
 
@@ -375,6 +377,10 @@ func (w *Worker) borrowContainer(ctx context.Context, pipeline, modelID string) 
 	}
 
 	w.mu.Unlock()
+
+	if !w.useManagedContainers {
+		return nil, errors.New("no runners available")
+	}
 
 	return w.manager.Borrow(ctx, pipeline, modelID)
 }
