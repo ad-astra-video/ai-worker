@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -369,6 +370,7 @@ func (w *Worker) HasCapacity(pipeline, modelID string) bool {
 func (w *Worker) borrowContainer(ctx context.Context, pipeline, modelID string) (*RunnerContainer, error) {
 	w.mu.Lock()
 
+	localExternalContainers := 0
 	for key, rc := range w.externalContainers {
 		if rc.Pipeline == pipeline && rc.ModelID == modelID {
 			// The current implementation of ai-runner containers does not have a queue so only do one request at a time to each container
@@ -378,10 +380,20 @@ func (w *Worker) borrowContainer(ctx context.Context, pipeline, modelID string) 
 				w.mu.Unlock()
 				return rc, nil
 			}
+
+			//track local external containers, assume on same GPUs in orchestrator launch config
+			if strings.Contains(rc.Endpoint.URL, "127.0.0.1") || strings.Contains(rc.Endpoint.URL, "localhost") {
+				localExternalContainers += 1
+			}
 		}
 	}
 
 	w.mu.Unlock()
+
+	//Do not dynamically create a container when the external containers are taking up the GPUs
+	if localExternalContainers >= len(w.manager.gpus) {
+		return nil, errors.New("no runners available")
+	}
 
 	return w.manager.Borrow(ctx, pipeline, modelID)
 }
