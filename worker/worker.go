@@ -364,12 +364,14 @@ func (w *Worker) HasCapacity(pipeline, modelID string) bool {
 	defer w.mu.Unlock()
 	for _, rc := range w.externalContainers {
 		if rc.Pipeline == pipeline && rc.ModelID == modelID {
-			return true
+			// The current implementation of ai-runner containers does not have a queue so only do one request at a time to each container
+			if rc.Capacity > 0 {
+				return true
+			}
 		}
 	}
 
-	//no managed or external containers have capacity
-	return false
+	return ok
 }
 
 func (w *Worker) borrowContainer(ctx context.Context, pipeline, modelID string) (*RunnerContainer, error) {
