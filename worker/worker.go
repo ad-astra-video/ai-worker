@@ -364,6 +364,18 @@ func (w *Worker) HasCapacity(pipeline, modelID string) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	_, ok := w.externalContainers[name]
+	if ok {
+		return true
+	} else {
+		for _, rc := range w.externalContainers {
+			if rc.Pipeline == pipeline && rc.ModelID == modelID {
+				// The current implementation of ai-runner containers does not have a queue so only do one request at a time to each container
+				if rc.Capacity > 0 {
+					return true
+				}
+			}
+		}
+	}
 
 	return ok
 }
