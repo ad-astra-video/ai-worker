@@ -37,9 +37,8 @@ class RegisterWorker(threading.Thread):
                 logger.info("registering worker")
                 #let the API start
                 api_is_running = False
-                registered = False
                 while api_is_running == False:
-                    resp == httpx.post("http://127.0.0.1:9000/health")
+                    resp = httpx.get("http://127.0.0.1:9000/health")
                     if resp.status_code < 400:
                         api_is_running = True
                     time.sleep(1)
@@ -47,7 +46,6 @@ class RegisterWorker(threading.Thread):
                 resp = httpx.post(orchestrator_url+"/register-ai-worker", headers={"Credentials":orch_secret}, json=[model_json], timeout=30, verify=False)
                 if resp.status_code == 200:
                     logger.info(f"Worker registered to orchestrator {orchestrator_url}")
-                    registered = True
                     time.sleep(60)
                 elif resp.status_code == 304:
                     logger.info(f"Worker registration confirmed to orchestrator {orchestrator_url}")
