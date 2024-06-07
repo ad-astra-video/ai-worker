@@ -367,6 +367,7 @@ func (w *Worker) HasCapacity(pipeline, modelID string) bool {
 	if ok {
 		return true
 	} else {
+		//check external containers that are registered with url if they have capacity
 		for _, rc := range w.externalContainers {
 			if rc.Pipeline == pipeline && rc.ModelID == modelID {
 				// The current implementation of ai-runner containers does not have a queue so only do one request at a time to each container
@@ -378,6 +379,19 @@ func (w *Worker) HasCapacity(pipeline, modelID string) bool {
 	}
 
 	return ok
+}
+
+func (w *Worker) IsRegistered(url string, pipeline string, model_id string) bool {
+	rc, ok := w.externalContainers[url]
+	if ok {
+		if rc.Pipeline == pipeline && rc.ModelID == model_id {
+			return true
+		} else {
+			return false
+		}
+	} else {
+		return false
+	}
 }
 
 func (w *Worker) borrowContainer(ctx context.Context, pipeline, modelID string) (*RunnerContainer, error) {
