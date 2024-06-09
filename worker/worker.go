@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strconv"
 	"sync"
+	"time"
 )
 
 // EnvValue unmarshals JSON booleans as strings for compatibility with env variables.
@@ -379,6 +380,7 @@ func (w *Worker) IsRegistered(url string, pipeline string, model_id string) bool
 	rc, ok := w.externalContainers[url]
 	if ok {
 		if rc.Pipeline == pipeline && rc.ModelID == model_id {
+			w.externalContainers[url].lastSeen = time.Now()
 			return true
 		} else {
 			return false
@@ -425,6 +427,7 @@ func (w *Worker) returnContainer(rc *RunnerContainer) {
 		for key, _ := range w.externalContainers {
 			if w.externalContainers[key].Endpoint.URL == rc.Endpoint.URL {
 				w.externalContainers[key].Capacity += 1
+				w.externalContainers[key].lastSeen = time.Now()
 			}
 		}
 	}

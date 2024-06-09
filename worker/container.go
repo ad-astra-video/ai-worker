@@ -19,6 +19,7 @@ type RunnerContainer struct {
 	RunnerContainerConfig
 	Name     string
 	Capacity int
+	lastSeen time.Time
 	Client   *ClientWithResponses
 }
 
@@ -72,6 +73,7 @@ func NewRunnerContainer(ctx context.Context, cfg RunnerContainerConfig, name str
 	return &RunnerContainer{
 		RunnerContainerConfig: cfg,
 		Name:                  name,
+		lastSeen:              time.Now(),
 		Capacity:              1,
 		Client:                client,
 	}, nil
