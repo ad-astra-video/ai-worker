@@ -28,10 +28,15 @@ async def lifespan(app: FastAPI):
     use_route_names_as_operation_ids(app)
 
     #start background task to register worker and confirm registered every minute
-    r = RegisterWorker().start()
+    r = RegisterWorker()
+    r.start()
 
     logger.info(f"Started up with pipeline {app.pipeline}")
     yield
+    #stop background task thread and unregister worker
+    r.join()
+    r.remove_worker()
+    
     logger.info("Shutting down")
 
 
