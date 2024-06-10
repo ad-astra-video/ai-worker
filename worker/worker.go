@@ -98,6 +98,7 @@ func (w *Worker) TextToImage(ctx context.Context, req TextToImageJSONRequestBody
 			return nil, err
 		}
 		slog.Error("text-to-image container returned 500", slog.String("err", string(val)))
+		c.hadRunError = true
 		return nil, errors.New("text-to-image container returned 500")
 	}
 
@@ -146,6 +147,7 @@ func (w *Worker) ImageToImage(ctx context.Context, req ImageToImageMultipartRequ
 			return nil, err
 		}
 		slog.Error("image-to-image container returned 500", slog.String("err", string(val)))
+		c.hadRunError = true
 		return nil, errors.New("image-to-image container returned 500")
 	}
 
@@ -194,6 +196,7 @@ func (w *Worker) ImageToVideo(ctx context.Context, req ImageToVideoMultipartRequ
 			return nil, err
 		}
 		slog.Error("image-to-video container returned 500", slog.String("err", string(val)))
+		c.hadRunError = true
 		return nil, errors.New("image-to-video container returned 500")
 	}
 
@@ -396,7 +399,8 @@ func (w *Worker) borrowContainer(ctx context.Context, pipeline, modelID string) 
 	for key, rc := range w.externalContainers {
 		if rc.Pipeline == pipeline && rc.ModelID == modelID {
 			// The current implementation of ai-runner containers does not have a queue so only do one request at a time to each container
-			if rc.Capacity > 0 {
+			// ai-runner container must have communicated within last 3 mintues to be eligible for work
+			if rc.Capacity > 0 && rc.lastSeen.Add(time.Duration(3*time.Minute)).Compare(time.Now()) > 1 {
 				slog.Info("selecting container to run request", slog.Int("type", int(rc.Type)), slog.Int("capacity", rc.Capacity), slog.String("url", rc.Endpoint.URL))
 				w.externalContainers[key].Capacity -= 1
 				w.mu.Unlock()
@@ -426,8 +430,13 @@ func (w *Worker) returnContainer(rc *RunnerContainer) {
 		//free external container for next request
 		for key, _ := range w.externalContainers {
 			if w.externalContainers[key].Endpoint.URL == rc.Endpoint.URL {
-				w.externalContainers[key].Capacity += 1
-				w.externalContainers[key].lastSeen = time.Now()
+				if !rc.hadRunError {
+					w.externalContainers[key].Capacity += 1
+					w.externalContainers[key].lastSeen = time.Now()
+				} else {
+					//remove container, will be added back when it re-registers
+					delete(w.externalContainers, key)
+				}
 			}
 		}
 	}

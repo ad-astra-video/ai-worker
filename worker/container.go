@@ -17,10 +17,11 @@ const (
 
 type RunnerContainer struct {
 	RunnerContainerConfig
-	Name     string
-	Capacity int
-	lastSeen time.Time
-	Client   *ClientWithResponses
+	Name        string
+	Capacity    int
+	lastSeen    time.Time
+	hadRunError bool
+	Client      *ClientWithResponses
 }
 
 type RunnerEndpoint struct {
