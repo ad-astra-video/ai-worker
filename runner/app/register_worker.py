@@ -4,7 +4,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 class RegisterWorker(threading.Thread):
-    def __init__(self):
+    def get_values(self):
         self.pipeline = os.environ.get("PIPELINE", "")
         self.model_id = os.environ.get("MODEL_ID","")
         self.orchestrator_url = os.environ.get("ORCHESTRATOR", "")
@@ -29,6 +29,7 @@ class RegisterWorker(threading.Thread):
             logger.error(f"Worker NOT removed from orchestrator {self.orchestrator_url}, error: {resp.text}")
 
     def run(self):
+        self.get_values()
         #register worker
         logger.info("register worker task started")
         
