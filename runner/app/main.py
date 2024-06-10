@@ -34,9 +34,8 @@ async def lifespan(app: FastAPI):
     logger.info(f"Started up with pipeline {app.pipeline}")
     yield
     #stop background task thread and unregister worker
-    r.join()
     r.remove_worker()
-    
+
     logger.info("Shutting down")
 
 
