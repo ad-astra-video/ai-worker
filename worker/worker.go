@@ -405,9 +405,9 @@ func (w *Worker) borrowContainer(ctx context.Context, pipeline, modelID string) 
 	for key, rc := range w.externalContainers {
 		if rc.Pipeline == pipeline && rc.ModelID == modelID {
 			// The current implementation of ai-runner containers does not have a queue so only do one request at a time to each container
-			// ai-runner container must have communicated within last 3 mintues to be eligible for work
-			if rc.Capacity > 0 && rc.lastSeen.Add(time.Duration(3*time.Minute)).Compare(time.Now()) > 1 {
-				slog.Info("selecting container to run request", slog.Int("type", int(rc.Type)), slog.Int("capacity", rc.Capacity), slog.String("url", rc.Endpoint.URL))
+			// ai-runner container must have communicated within last 10 mintues to be eligible for work
+			if rc.Capacity > 0 && time.Since(rc.lastSeen) < time.Duration(10*time.Minute) {
+				slog.Info("selecting container to run request", slog.Int("type", int(rc.Type)), slog.Int("capacity", rc.Capacity), slog.String("url", rc.Endpoint.URL), slog.Time("lastSeen", rc.lastSeen), slog.Duration("lastSeen", time.Since(rc.lastSeen)))
 				w.externalContainers[key].Capacity -= 1
 				w.mu.Unlock()
 				return rc, nil
