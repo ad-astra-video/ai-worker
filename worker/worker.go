@@ -385,6 +385,28 @@ func (w *Worker) HasCapacity(pipeline, modelID string) bool {
 	return ok
 }
 
+func (w *Worker) Remove(ctx context.Context, url string, pipeline string, model_id string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	name := dockerContainerName(pipeline, model_id)
+	if url != "" {
+		name = url
+	}
+
+	rc, ok := w.externalContainers[name]
+	if ok {
+		if rc.Pipeline == pipeline && rc.ModelID == model_id {
+			delete(w.externalContainers, name)
+			return nil
+		} else {
+			return errors.New("runner not removed, runner registered with different pipeline and/or model_id")
+		}
+	} else {
+		return errors.New("runner not removed, name not registered")
+	}
+}
+
 func (w *Worker) IsRegistered(url string, pipeline string, model_id string) bool {
 	rc, ok := w.externalContainers[url]
 	if ok {
