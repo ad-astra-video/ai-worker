@@ -52,16 +52,20 @@ class RegisterWorker(threading.Thread):
                         api_is_running = True
                     time.sleep(1)
                 #register with the orchestrator
-                resp = httpx.post(self.orchestrator_url+"/register-ai-worker", headers={"Credentials":self.orch_secret}, json=[model_json], timeout=30, verify=False)
-                if resp.status_code == 200:
-                    logger.info(f"Worker registered to orchestrator {self.orchestrator_url}")
-                    time.sleep(300)
-                elif resp.status_code == 304:
-                    logger.info(f"Worker registration confirmed to orchestrator {self.orchestrator_url}")
-                    time.sleep(300)
-                else:
-                    logger.error(f"Worker registration failed to orchestrator {self.orchestrator_url}, error: {resp.text}")
-                    time.sleep(1)
+                try:
+                    resp = httpx.post(self.orchestrator_url+"/register-ai-worker", headers={"Credentials":self.orch_secret}, json=[model_json], timeout=30, verify=False)
+                    if resp.status_code == 200:
+                        logger.info(f"Worker registered to orchestrator {self.orchestrator_url}")
+                        time.sleep(300)
+                    elif resp.status_code == 304:
+                        logger.info(f"Worker registration confirmed to orchestrator {self.orchestrator_url}")
+                        time.sleep(300)
+                    else:
+                        logger.error(f"Worker registration failed to orchestrator {self.orchestrator_url}, error: {resp.text}")
+                        time.sleep(1)
+                except:
+                    logger.error("could not register worker, will retry in 30 seconds")
+                    time.sleep(30)
                     
         else:
             logger.error("worker registration not possible, need to specify WORKER_URL, ORCHESTRATOR, ORCH_SECRET and PRICE_PER_UNIT environment variables.")
