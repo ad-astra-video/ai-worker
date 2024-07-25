@@ -8,5 +8,10 @@ from app.pipelines.utils.utils import (
     is_lightning_model,
     is_turbo_model,
     split_prompt,
-    validate_torch_device,
+    validate_torch_device
+)
+
+from app.pipelines.utils.schedulers import (
+    load_scheduler_presets,
+    create_scheduler
 )

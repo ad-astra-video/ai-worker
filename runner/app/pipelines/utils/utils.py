@@ -4,8 +4,10 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple, get_type_hints
 
+import importlib
+import json
 import numpy as np
 import torch
 from diffusers.pipelines.stable_diffusion import StableDiffusionSafetyChecker
@@ -111,7 +113,18 @@ def split_prompt(
 
     return prompt_dict
 
-
+def string_to_number(val: str) -> any:
+    try:
+        # Try to convert to an integer
+        return int(val)
+    except ValueError:
+        try:
+            # Try to convert to a float
+            return float(val)
+        except ValueError:
+            # If it fails to convert to either, raise an error
+            logger.info(f"Cannot convert {val} to either int or float")
+            raise ValueError(f"Cannot convert {val} to either int or float")
 class SafetyChecker:
     """Checks images for unsafe or inappropriate content using a pretrained model.
 
