@@ -74,6 +74,13 @@ class TextToImageParams(BaseModel):
         int,
         Field(default=1, description="Number of images to generate per prompt."),
     ]
+    scheduler: Annotated[
+        str, 
+        Field(
+            default="", 
+            description="Set schedulers for pipeline (e.g. {'name':'DPM++ 2M', 'args':{}}). Refer to diffusers documentation for appropriate settings: https://huggingface.co/docs/diffusers/api/schedulers/overview"
+            )
+    ]
 
 
 RESPONSES = {
