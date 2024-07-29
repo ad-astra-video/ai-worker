@@ -1,0 +1,1 @@
+#requirements to install on top of requirements in livepeer/ai-runner

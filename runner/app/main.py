@@ -63,6 +63,10 @@ def load_pipeline(pipeline: str, model_id: str) -> any:
             from app.pipelines.upscale import UpscalePipeline
 
             return UpscalePipeline(model_id)
+        case "custom":
+            from app.pipelines.custom import CustomPipeline
+            
+            return CustomPipeline(model_id)
         case _:
             raise EnvironmentError(
                 f"{pipeline} is not a valid pipeline for model {model_id}"

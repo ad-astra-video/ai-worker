@@ -1,7 +1,7 @@
 """This module contains several utility functions."""
 
 import logging
-import os
+import os, sys
 import re
 from pathlib import Path
 from typing import Optional, Tuple, get_type_hints
@@ -25,6 +25,13 @@ def get_model_dir() -> Path:
 def get_model_path(model_id: str) -> Path:
     return get_model_dir() / model_id.lower()
 
+def load_custom_model_path() -> bool:
+    custom_pipeline_path = os.environ["CUSTOM_PIPELINE_PATH"]
+    if os.path.exists(custom_pipeline_path):
+        sys.path.append(custom_pipeline_path)
+        return True
+    else:
+        return False
 
 def get_torch_device():
     if torch.cuda.is_available():
