@@ -42,38 +42,18 @@ type BodyAudioToTextAudioToTextPost struct {
 
 // BodyImageToImageImageToImagePost defines model for Body_image_to_image_image_to_image_post.
 type BodyImageToImageImageToImagePost struct {
-	// GuidanceScale Encourages model to generate images closely linked to the text prompt (higher values may reduce image quality).
-	GuidanceScale *float32 `json:"guidance_scale,omitempty"`
-
-	// Image Uploaded image to modify with the pipeline.
-	Image openapi_types.File `json:"image"`
-
-	// ImageGuidanceScale Degree to which the generated image is pushed towards the initial image.
-	ImageGuidanceScale *float32 `json:"image_guidance_scale,omitempty"`
-
-	// ModelId Hugging Face model ID used for image generation.
-	ModelId *string `json:"model_id,omitempty"`
-
-	// NegativePrompt Text prompt(s) to guide what to exclude from image generation. Ignored if guidance_scale < 1.
-	NegativePrompt *string `json:"negative_prompt,omitempty"`
-
-	// NumImagesPerPrompt Number of images to generate per prompt.
-	NumImagesPerPrompt *int `json:"num_images_per_prompt,omitempty"`
-
-	// NumInferenceSteps Number of denoising steps. More steps usually lead to higher quality images but slower inference. Modulated by strength.
-	NumInferenceSteps *int `json:"num_inference_steps,omitempty"`
-
-	// Prompt Text prompt(s) to guide image generation.
-	Prompt string `json:"prompt"`
-
-	// SafetyCheck Perform a safety check to estimate if generated images could be offensive or harmful.
-	SafetyCheck *bool `json:"safety_check,omitempty"`
-
-	// Seed Seed for random number generation.
-	Seed *int `json:"seed,omitempty"`
-
-	// Strength Degree of transformation applied to the reference image (0 to 1).
-	Strength *float32 `json:"strength,omitempty"`
+	GuidanceScale      *float32           `json:"guidance_scale,omitempty"`
+	Image              openapi_types.File `json:"image"`
+	ImageGuidanceScale *float32           `json:"image_guidance_scale,omitempty"`
+	ModelId            *string            `json:"model_id,omitempty"`
+	NegativePrompt     *string            `json:"negative_prompt,omitempty"`
+	NumImagesPerPrompt *int               `json:"num_images_per_prompt,omitempty"`
+	NumInferenceSteps  *int               `json:"num_inference_steps,omitempty"`
+	Prompt             string             `json:"prompt"`
+	SafetyCheck        *bool              `json:"safety_check,omitempty"`
+	Scheduler          *string            `json:"scheduler,omitempty"`
+	Seed               *int               `json:"seed,omitempty"`
+	Strength           *float32           `json:"strength,omitempty"`
 }
 
 // BodyImageToVideoImageToVideoPost defines model for Body_image_to_video_image_to_video_post.
@@ -1536,32 +1516,32 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
-	"vl7/EwAA//8n47ePUSgAAA==",
+	"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",
+	"p9vr7V8BAAD//9DsPr+tKAAA",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file
