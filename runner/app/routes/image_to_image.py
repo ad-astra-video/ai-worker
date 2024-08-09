@@ -88,6 +88,10 @@ async def image_to_image(
         int,
         Form(description="Number of images to generate per prompt."),
     ] = 1,
+    scheduler: Annotated[
+        str, 
+        Form(description="Set schedulers for pipeline (e.g. {'name':'DPM++ 2M', 'args':{}}). Refer to diffusers documentation for appropriate settings: https://huggingface.co/docs/diffusers/api/schedulers/overview")
+    ] = "",
     pipeline: Pipeline = Depends(get_pipeline),
     token: HTTPAuthorizationCredentials = Depends(HTTPBearer(auto_error=False)),
 ):
@@ -131,6 +135,7 @@ async def image_to_image(
                 seed=seed,
                 num_images_per_prompt=1,
                 num_inference_steps=num_inference_steps,
+                scheduler=scheduler
             )
             images.extend(imgs)
             has_nsfw_concept.extend(nsfw_checks)
