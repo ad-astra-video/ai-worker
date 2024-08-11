@@ -44,13 +44,18 @@ class AudioToTextPipeline(Pipeline):
             logger.info("AudioToTextPipeline using bfloat16 precision for %s", model_id)
             kwargs["torch_dtype"] = torch.bfloat16
 
+        if os.environ.get("DEVICE_MAP", "") != "":
+            kwargs["device_map"] = os.environ.get("DEVICE_MAP")
+        
         model = AutoModelForSpeechSeq2Seq.from_pretrained(
             model_id,
             low_cpu_mem_usage=True,
             use_safetensors=True,
             cache_dir=get_model_dir(),
             **kwargs,
-        ).to(torch_device)
+        )
+        if not "device_map" in kwargs:
+            model.to(torch_device)
 
         processor = AutoProcessor.from_pretrained(model_id, cache_dir=get_model_dir())
 
@@ -65,6 +70,9 @@ class AudioToTextPipeline(Pipeline):
             return_timestamps=True,
             **kwargs,
         )
+
+        if "device_map" in kwargs:
+            logger.info(f"pipeline device map: {model.hf_device_map}")
 
     def __call__(self, audio: UploadFile, **kwargs) -> List[File]:
         # Convert M4A/MP4 files for pipeline compatibility.

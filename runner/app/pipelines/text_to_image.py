@@ -76,6 +76,9 @@ class TextToImagePipeline(Pipeline):
         if os.environ.get("BFLOAT16"):
             logger.info("TextToImagePipeline using bfloat16 precision for %s", model_id)
             kwargs["torch_dtype"] = torch.bfloat16
+        
+        if os.environ.get("DEVICE_MAP", "") != "":
+            kwargs["device_map"] = os.environ.get("DEVICE_MAP")
 
         # Load VAE for specific models.
         if ModelName.REALISTIC_VISION_V6.value in model_id:
@@ -118,26 +121,32 @@ class TextToImagePipeline(Pipeline):
                 )
             )
 
-            self.ldm = StableDiffusionXLPipeline.from_pretrained(
-                base, unet=unet, **kwargs
-            ).to(torch_device)
+            self.ldm = StableDiffusionXLPipeline.from_pretrained(base, unet=unet, **kwargs)
+            if not "device_map" in kwargs:
+                self.ldm.to(torch_device)
 
             self.ldm.scheduler = EulerDiscreteScheduler.from_config(
                 self.ldm.scheduler.config, timestep_spacing="trailing"
             )
         elif ModelName.SD3_MEDIUM.value in model_id:
-            self.ldm = StableDiffusion3Pipeline.from_pretrained(model_id, **kwargs).to(
-                torch_device
-            )
+            self.ldm = StableDiffusion3Pipeline.from_pretrained(model_id, **kwargs)
+            if not "device_map" in kwargs:
+                self.ldm.to(torch_device)
         elif ModelName.FLUX_1_SCHNELL.value in model_id:
             # Decrease precision to preven OOM errors.
             kwargs["torch_dtype"] = torch.bfloat16
-            self.ldm = FluxPipeline.from_pretrained(model_id, **kwargs).to(torch_device)
+            self.ldm = FluxPipeline.from_pretrained(model_id, **kwargs)
+            if not "device_map" in kwargs:
+                self.ldm.to(torch_device)
+            
         else:
-            self.ldm = AutoPipelineForText2Image.from_pretrained(model_id, **kwargs).to(
-                torch_device
-            )
+            self.ldm = AutoPipelineForText2Image.from_pretrained(model_id, **kwargs)
+            if not "device_map" in kwargs:
+                self.ldm.to(torch_device)
 
+        if "device_map" in kwargs:
+            logger.info(f"pipeline device map: {self.ldm.hf_device_map}")
+        
         #save the default scheduler
         self.default_scheduler = deepcopy(self.ldm.scheduler)
         #load the scheduler presets

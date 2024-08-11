@@ -42,6 +42,9 @@ class UpscalePipeline(Pipeline):
             kwargs["torch_dtype"] = torch.float16
             kwargs["variant"] = "fp16"
 
+        if os.environ.get("DEVICE_MAP", "") != "":
+            kwargs["device_map"] = os.environ.get("DEVICE_MAP")
+        
         self.ldm = StableDiffusionUpscalePipeline.from_pretrained(
             model_id, **kwargs
         ).to(torch_device)
@@ -109,7 +112,7 @@ class UpscalePipeline(Pipeline):
                 kwargs["generator"] = [
                     torch.Generator(get_torch_device()).manual_seed(s) for s in seed
                 ]
-
+        
         if num_inference_steps is None or num_inference_steps < 1:
             del kwargs["num_inference_steps"]
 

@@ -39,9 +39,14 @@ class ImageToVideoPipeline(Pipeline):
             kwargs["torch_dtype"] = torch.float16
             kwargs["variant"] = "fp16"
 
+        if os.environ.get("DEVICE_MAP", "") != "":
+            kwargs["device_map"] = os.environ.get("DEVICE_MAP")
+        
         self.ldm = StableVideoDiffusionPipeline.from_pretrained(model_id, **kwargs)
-        self.ldm.to(get_torch_device())
-
+        if not "device_map" in kwargs:
+            self.ldm.to(get_torch_device())
+        if "device_map" in kwargs:
+            logger.info(f"pipeline device map: {self.ldm.hf_device_map}")
         sfast_enabled = os.getenv("SFAST", "").strip().lower() == "true"
         deepcache_enabled = os.getenv("DEEPCACHE", "").strip().lower() == "true"
         if sfast_enabled and deepcache_enabled:
