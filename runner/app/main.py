@@ -6,6 +6,8 @@ from app.routes import health
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 
+from app.pipelines.utils.utils import print_cuda_devices
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,6 +16,9 @@ async def lifespan(app: FastAPI):
     config_logging()
 
     app.include_router(health.router)
+
+    #print devices available to runner
+    print_cuda_devices()
 
     pipeline = os.environ["PIPELINE"]
     model_id = os.environ["MODEL_ID"]
