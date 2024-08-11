@@ -187,13 +187,14 @@ func (m *DockerManager) createContainer(ctx context.Context, pipeline string, mo
 		},
 	}
 
+	gpuDevices := strings.Split(gpu, "|")
+	devReq := container.DeviceRequest{Driver: "nvidia", DeviceIDs: gpuDevices, Capabilities: [][]string{{"gpu"}}}
 	gpuOpts := opts.GpuOpts{}
-	gpuOpts.Set("device=" + gpu)
 
-	containerHostPort := containerHostPorts[pipeline][:3] + gpu
+	containerHostPort := containerHostPorts[pipeline][:3] + gpuDevices[0]
 	hostConfig := &container.HostConfig{
 		Resources: container.Resources{
-			DeviceRequests: gpuOpts.Value(),
+			DeviceRequests: append(gpuOpts.Value(), devReq),
 		},
 		Mounts: []mount.Mount{
 			{
