@@ -67,6 +67,9 @@ class TextToImagePipeline(Pipeline):
             logger.info("TextToImagePipeline using bfloat16 precision for %s", model_id)
             kwargs["torch_dtype"] = torch.bfloat16
 
+        if os.environ.get("DEVICE_MAP", "") != "":
+            kwargs["device_map"] = os.environ.get("DEVICE_MAP")
+
         # Load VAE for specific models.
         if ModelName.REALISTIC_VISION_V6.value in model_id:
             vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-ema")
@@ -94,9 +97,10 @@ class TextToImagePipeline(Pipeline):
                 subfolder="unet",
                 cache_dir=kwargs["cache_dir"],
             )
-            unet = UNet2DConditionModel.from_config(unet_config).to(
-                torch_device, kwargs["torch_dtype"]
-            )
+            unet = UNet2DConditionModel.from_config(unet_config)
+            if not "device_map" in kwargs:
+                unet.to(torch_device, kwargs["torch_dtype"])
+            
             unet.load_state_dict(
                 load_file(
                     hf_hub_download(
@@ -110,27 +114,34 @@ class TextToImagePipeline(Pipeline):
 
             self.ldm = StableDiffusionXLPipeline.from_pretrained(
                 base, unet=unet, **kwargs
-            ).to(torch_device)
+            )
+            if not "device_map" in kwargs:
+                self.ldm.to(torch_device)
 
             self.ldm.scheduler = EulerDiscreteScheduler.from_config(
                 self.ldm.scheduler.config, timestep_spacing="trailing"
             )
         elif ModelName.SD3_MEDIUM.value in model_id:
-            self.ldm = StableDiffusion3Pipeline.from_pretrained(model_id, **kwargs).to(
-                torch_device
-            )
+            self.ldm = StableDiffusion3Pipeline.from_pretrained(model_id, **kwargs)
+            if not "device_map" in kwargs:
+                self.ldm.to(torch_device)
         elif (
             ModelName.FLUX_1_SCHNELL.value in model_id
             or ModelName.FLUX_1_DEV.value in model_id
         ):
             # Decrease precision to preven OOM errors.
             kwargs["torch_dtype"] = torch.bfloat16
-            self.ldm = FluxPipeline.from_pretrained(model_id, **kwargs).to(torch_device)
+            self.ldm = FluxPipeline.from_pretrained(model_id, **kwargs)
+            if not "device_map" in kwargs:
+                self.ldm.to(torch_device)
         else:
-            self.ldm = AutoPipelineForText2Image.from_pretrained(model_id, **kwargs).to(
-                torch_device
-            )
+            self.ldm = AutoPipelineForText2Image.from_pretrained(model_id, **kwargs)
+            if not "device_map" in kwargs:
+                self.ldm.to(torch_device)
 
+        if "device_map" in kwargs:
+            logger.info(f"pipeline device map: {self.ldm.hf_device_map}")
+            
         #save the default scheduler
         self.default_scheduler = deepcopy(self.ldm.scheduler)
         #load the scheduler presets

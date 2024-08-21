@@ -63,6 +63,9 @@ class ImageToImagePipeline(Pipeline):
             kwargs["torch_dtype"] = torch.float16
             kwargs["variant"] = "fp16"
 
+        if os.environ.get("DEVICE_MAP", "") != "":
+            kwargs["device_map"] = os.environ.get("DEVICE_MAP")
+
         # Special case SDXL-Lightning because the unet for SDXL needs to be swapped
         if ModelName.SDXL_LIGHTNING.value in model_id:
             base = "stabilityai/stable-diffusion-xl-base-1.0"
@@ -101,7 +104,9 @@ class ImageToImagePipeline(Pipeline):
 
             self.ldm = StableDiffusionXLPipeline.from_pretrained(
                 base, unet=unet, **kwargs
-            ).to(torch_device)
+            )
+            if not "device_map" in kwargs:
+                self.ldm.to(torch_device)
 
             self.ldm.scheduler = EulerDiscreteScheduler.from_config(
                 self.ldm.scheduler.config, timestep_spacing="trailing"
@@ -109,7 +114,9 @@ class ImageToImagePipeline(Pipeline):
         elif ModelName.INSTRUCT_PIX2PIX.value in model_id:
             self.ldm = StableDiffusionInstructPix2PixPipeline.from_pretrained(
                 model_id, **kwargs
-            ).to(torch_device)
+            )
+            if not "device_map" in kwargs:
+                self.ldm.to(torch_device)
 
             self.ldm.scheduler = EulerAncestralDiscreteScheduler.from_config(
                 self.ldm.scheduler.config
@@ -117,8 +124,13 @@ class ImageToImagePipeline(Pipeline):
         else:
             self.ldm = AutoPipelineForImage2Image.from_pretrained(
                 model_id, **kwargs
-            ).to(torch_device)
+            )
+            if not "device_map" in kwargs:
+                self.ldm.to(torch_device)
 
+        if "device_map" in kwargs:
+            logger.info(f"pipeline device map: {self.ldm.hf_device_map}")
+            
         #save the default scheduler
         self.default_scheduler = deepcopy(self.ldm.scheduler)
         #load the scheduler presets
