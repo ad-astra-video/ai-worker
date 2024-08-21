@@ -125,7 +125,12 @@ def split_prompt(
 
     return prompt_dict
 
-
+def print_cuda_devices():
+    #print available IDs
+    logger.info("cuda devices available to runner:")
+    for i in range(torch.cuda.device_count()):
+        logger.info(torch.cuda.get_device_properties(i))
+        
 class SafetyChecker:
     """Checks images for unsafe or inappropriate content using a pretrained model.
 
