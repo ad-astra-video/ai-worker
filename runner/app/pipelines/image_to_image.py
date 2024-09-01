@@ -3,27 +3,29 @@ import os
 from enum import Enum
 from typing import List, Optional, Tuple
 from copy import deepcopy
+import json
 
 import PIL
 import torch
 from app.pipelines.base import Pipeline
 from app.pipelines.utils import (
     LoraLoader,
-    SafetyChecker,
+    SafetyChecker, 
     get_model_dir,
-    get_torch_device,
+    get_torch_device, 
     is_lightning_model,
-    is_turbo_model,
+    is_turbo_model, 
     load_scheduler_presets,
-    create_scheduler
+    create_scheduler,
+    set_max_memory,
 )
 from diffusers import (
     AutoPipelineForImage2Image,
     EulerAncestralDiscreteScheduler,
     EulerDiscreteScheduler,
     StableDiffusionInstructPix2PixPipeline,
-    StableDiffusionXLPipeline,
-    UNet2DConditionModel,
+    StableDiffusionXLPipeline, 
+    UNet2DConditionModel
 )
 from huggingface_hub import file_download, hf_hub_download
 from PIL import ImageFile
@@ -75,6 +77,9 @@ class ImageToImagePipeline(Pipeline):
 
         if os.environ.get("DEVICE_MAP", "") != "":
             kwargs["device_map"] = os.environ.get("DEVICE_MAP")
+
+        if os.environ.get("MAX_MEMORY_PER_DEVICE", "") != "":
+            kwargs["max_memory"] = set_max_memory(os.environ.get("MAX_MEMORY_PER_DEVICE"))
 
         # Special case SDXL-Lightning because the unet for SDXL needs to be swapped
         if ModelName.SDXL_LIGHTNING.value in model_id:

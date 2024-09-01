@@ -1,10 +1,11 @@
 import logging
 import os
 from typing import List
+import json
 
 import torch
 from app.pipelines.base import Pipeline
-from app.pipelines.utils import get_model_dir, get_torch_device
+from app.pipelines.utils import get_model_dir, get_torch_device, set_max_memory
 from app.pipelines.utils.audio import AudioConverter
 from fastapi import File, UploadFile
 from huggingface_hub import file_download
@@ -46,6 +47,9 @@ class AudioToTextPipeline(Pipeline):
 
         if os.environ.get("DEVICE_MAP", "") != "":
             kwargs["device_map"] = os.environ.get("DEVICE_MAP")
+
+        if os.environ.get("MAX_MEMORY_PER_DEVICE", "") != "":
+            kwargs["max_memory"] = set_max_memory(os.environ.get("MAX_MEMORY_PER_DEVICE"))
 
         model = AutoModelForSpeechSeq2Seq.from_pretrained(
             model_id,
