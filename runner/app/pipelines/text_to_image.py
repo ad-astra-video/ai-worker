@@ -3,28 +3,26 @@ import os
 from enum import Enum
 from typing import List, Optional, Tuple
 from copy import deepcopy
+import json
 
 import PIL
 import torch
 from app.pipelines.base import Pipeline
 from app.pipelines.utils import (
-    SafetyChecker,
+    LoraLoader,
+    SafetyChecker, 
     get_model_dir,
-    get_torch_device,
+    get_torch_device, 
     is_lightning_model,
-    is_turbo_model,
+    is_turbo_model, 
     split_prompt,
-    load_scheduler_presets,
-    create_scheduler
+    load_scheduler_presets, 
+    create_scheduler,
+    set_max_memory,
 )
-from diffusers import (
-    AutoPipelineForText2Image,
-    EulerDiscreteScheduler,
-    FluxPipeline,
-    StableDiffusion3Pipeline,
-    StableDiffusionXLPipeline,
-    UNet2DConditionModel,
-)
+from diffusers import (AutoPipelineForText2Image, EulerDiscreteScheduler,
+                       StableDiffusion3Pipeline, StableDiffusionXLPipeline,
+                       UNet2DConditionModel, FluxPipeline)
 from diffusers.models import AutoencoderKL
 from huggingface_hub import file_download, hf_hub_download
 from safetensors.torch import load_file
@@ -80,6 +78,9 @@ class TextToImagePipeline(Pipeline):
 
         if os.environ.get("DEVICE_MAP", "") != "":
             kwargs["device_map"] = os.environ.get("DEVICE_MAP")
+
+        if os.environ.get("MAX_MEMORY_PER_DEVICE", "") != "":
+            kwargs["max_memory"] = set_max_memory(os.environ.get("MAX_MEMORY_PER_DEVICE"))
 
         # Load VAE for specific models.
         if ModelName.REALISTIC_VISION_V6.value in model_id:

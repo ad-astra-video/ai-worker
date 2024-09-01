@@ -84,6 +84,25 @@ def is_turbo_model(model_id: str) -> bool:
     """
     return re.search(r"[-_]turbo", model_id, re.IGNORECASE) is not None
 
+def set_max_memory(max_mem):
+    """Creates max_memory from simply string "0:23GiB,cpu:0GiB"
+
+    Args:
+        max_mem: comma separated list of devices and max memory to use
+
+    Returns:
+        dict max_memory to use with Diffusers pipeline
+    """
+    devices = max_mem.split(',')
+    max_memory = {}
+    for device_set in devices:
+        device, memory_limit = device_set.split(":")
+        if device == "cpu" or device == "disk":
+            max_memory[device] = memory_limit
+        else:
+            max_memory[int(device)] = memory_limit
+    
+    return max_memory
 
 def split_prompt(
     input_prompt: str,
