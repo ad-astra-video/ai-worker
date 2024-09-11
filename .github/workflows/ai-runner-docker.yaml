@@ -1,6 +1,7 @@
 name: Build ai-runner base Docker image
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - "runner/**"
@@ -8,6 +9,7 @@ on:
   push:
     branches:
       - main
+      - "dev*"
     tags:
       - '*'
     paths:
@@ -50,7 +52,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            livepeer/ai-runner
+            adastravideo/ai-runner
           tags: |
             type=sha
             type=ref,event=pr
@@ -75,5 +77,19 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           file: "Dockerfile"
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=livepeerci/build:cache
-          cache-to: type=registry,ref=livepeerci/build:cache,mode=max
+          cache-from: type=registry,ref=adastravideo/build:cache
+          cache-to: type=registry,ref=adastravideo/build:cache,mode=max
+      
+      - name: Build and push segment-anything-2 docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: "{{defaultContext}}:runner"
+          platforms: linux/amd64
+          build-args: |
+            BASE_IMAGE=adastravideo/ai-runner:base
+          push: true
+          tags: adastravideo/ai-runner:segment-anything-2
+          file: "docker/Dockerfile.segment_anything_2"
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=adastravideo/build:cache
+          cache-to: type=registry,ref=adastravideo/build:cache,mode=max
