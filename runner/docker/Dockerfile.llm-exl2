@@ -1,0 +1,16 @@
+ARG BASE_IMAGE=livepeer/ai-runner:base
+FROM ${BASE_IMAGE}
+RUN apt-get install cuda-compiler-12-1 -y
+RUN pip uninstall transformers torch -y
+RUN pip install --no-cache-dir transformers==4.43.3 torch==2.4.1 bitsandbytes>=0.44 psutil==6.0.0 exllamav2
+RUN pip install -U xformers --index-url https://download.pytorch.org/whl/cu121
+RUN pip install -U flash-attn
+RUN pip install https://github.com/turboderp/exllamav2/releases/download/v0.2.2/exllamav2-0.2.2+cu121.torch2.4.0-cp311-cp311-linux_x86_64.whl
+
+WORKDIR /app
+
+ADD https://raw.githubusercontent.com/turboderp/exllamav2/refs/heads/master/convert.py /app/convert_exl2.py
+ADD https://raw.githubusercontent.com/turboderp/exllamav2/refs/heads/master/test_inference.py /app/test_inference.py
+COPY app/ /app/app
+
+CMD ["uvicorn", "app.main:app", "--log-config", "app/cfg/uvicorn_logging_config.json", "--host", "0.0.0.0", "--port", "8000"]

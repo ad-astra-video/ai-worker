@@ -90,7 +90,7 @@ async def llm_generate(
                 full_response += chunk
 
             return LlmResponse(response=full_response, tokens_used=tokens_used)
-
+    
     except json.JSONDecodeError:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
