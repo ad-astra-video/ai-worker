@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Livepeer AI Runner
   description: An application to run AI pipelines
-  version: ''
+  version: v0.7.0
 servers:
 - url: https://dream-gateway.livepeer.cloud
   description: Livepeer Cloud Community Gateway
@@ -312,7 +312,7 @@ paths:
       operationId: genLLM
       requestBody:
         content:
-          application/x-www-form-urlencoded:
+          multipart/form-data:
             schema:
               $ref: '#/components/schemas/Body_genLLM'
         required: true
@@ -448,6 +448,12 @@ components:
           title: Num Images Per Prompt
           description: Number of images to generate per prompt.
           default: 1
+        scheduler:
+          type: string
+          title: Scheduler
+          description: Set scheduler for pipeline to use per documentation or presets
+            available
+          default: ''
       type: object
       required:
       - prompt
@@ -809,6 +815,12 @@ components:
           title: Num Images Per Prompt
           description: Number of images to generate per prompt.
           default: 1
+        scheduler:
+          type: string
+          title: Scheduler
+          description: Set scheduler for pipeline to use per documentation or presets
+            available
+          default: ''
       type: object
       required:
       - prompt
