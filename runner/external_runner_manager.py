@@ -8,6 +8,8 @@ from pydantic import BaseModel, ValidationError
 from typing import List, Optional
 import uvicorn
 
+from fastapi.responses import JSONResponse, StreamingResponse
+
 logger = logging.getLogger(__name__)
 
 HOST = os.getenv("HOST", "0.0.0.0")
@@ -59,6 +61,18 @@ def choose_backend():
     backend = min(available_backends, key=lambda b: b.current_load)
     return backend
 
+async def stream_data(proxied_url: str, req_json=None, req_form=None):
+    async with httpx.AsyncClient() as client:
+        client.timeout = httpx.Timeout(10.0)  # Set a reasonable timeout
+
+        async with client.stream("POST", proxied_url, json=req_json, data=req_form) as response:
+            if response.status_code != 200:
+                logger.error(f"Failed to fetch data, status: {response.status_code}")
+                raise HTTPException(status_code=response.status_code, detail="Request failed")
+
+            async for chunk in response.aiter_raw():  # Use aiter_raw to get raw bytes
+                yield chunk  # Directly yield the chunk received from the upstream API
+
 # Route that proxies the request to the chosen backend, including dynamic path
 @app.api_route("/{full_path:path}", methods=["POST"])
 async def proxy_request(request: Request, full_path: str):
@@ -71,19 +85,36 @@ async def proxy_request(request: Request, full_path: str):
     proxied_url = f"{backend.url}/{full_path}"
     headers = dict(request.headers)
     headers["host"] = backend.url
-    async with httpx.AsyncClient() as client:
-        client.timeout = None #disable timeout
+    # Check if the request should be streamed
+    is_stream = False
+    req_json = None
+    req_form = None
+    try:
+        req_json = await request.json()
+        is_stream = req_json.get("stream", "false").lower() == "true"
+    except json.JSONDecodeError:
+        req_form = await request.form()
+        is_stream = req_form.get("stream", "false").lower() == "true"
+    
         try:
-            # Forward the request method, headers, and body to the proxied URL
-            response = await client.request(
-                method=request.method,
-                url=proxied_url,
-                headers=headers,
-                content=await request.body(),
-            )
-
-            # Return the response from the proxied request
-            return response.json()
+            if is_stream:
+                return StreamingResponse(stream_data(proxied_url, req_json=req_json, req_form=req_form))
+            else:
+                # Forward the request method, headers, and body to the proxied URL
+                async with httpx.AsyncClient() as client:
+                    client.timeout = None  # disable timeout
+                    response = await client.request(
+                        method=request.method,
+                        url=proxied_url,
+                        headers=headers,
+                        content=await request.body(),
+                    )
+                    # Return the response from the proxied request
+                    return JSONResponse(
+                        content=response.json(),
+                        status_code=response.status_code,
+                        headers=dict(response.headers),
+                    )
 
         except Exception as e:
             logger.exception(f"Failed to proxy request: {e}")

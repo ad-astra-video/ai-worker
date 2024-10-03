@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 ARG PIP_VERSION=23.3.2
 RUN pip install --no-cache-dir --upgrade pip==${PIP_VERSION} setuptools==69.5.1 wheel==0.43.0
-RUN pip install fastapi httpx uvicorn
+RUN pip install fastapi httpx uvicorn python-multipart
 
 WORKDIR /app
 COPY ./external_runner_manager.py /app
