@@ -180,16 +180,26 @@ class TextToImagePipeline(Pipeline):
             torch._inductor.config.coordinate_descent_tuning = True
             torch._inductor.config.epilogue_fusion = False
             torch._inductor.config.coordinate_descent_check_all_directions = True
-
-            self.ldm.unet.to(memory_format=torch.channels_last)
-            self.ldm.vae.to(memory_format=torch.channels_last)
-
-            self.ldm.unet = torch.compile(
+            self.ldm.transformer.fuse_qkv_projections()
+            
+            
+            if not self.ldm.transformer is None:
+                self.ldm.transformer.to(memory_format=torch.channels_last)
+                self.ldm.transformer = torch.compile(
+                    self.ldm.transformer, mode="max-autotune", fullgraph=True
+                )
+            if not self.ldm.unet is None:
+                self.ldm.unet.to(memory_format=torch.channels_last)
+                self.ldm.unet = torch.compile(
                 self.ldm.unet, mode="max-autotune", fullgraph=True
             )
-            self.ldm.vae.decode = torch.compile(
-                self.ldm.vae.decode, mode="max-autotune", fullgraph=True
-            )
+            vae_ldm = self.ldm2 if os.environ.get("FLUX_DEVICE_MAP_2_GPU", "") != "" else self.ldm 
+            vae_ldm.fuse_qkv_projections()
+            if not vae_ldm.vae is None:
+                vae_ldm.vae.to(memory_format=torch.channels_last)
+                vae_ldm.vae.decode = torch.compile(
+                    vae_ldm.vae.decode, mode="max-autotune", fullgraph=True
+                )
 
         sfast_enabled = os.getenv("SFAST", "").strip().lower() == "true"
         deepcache_enabled = os.getenv("DEEPCACHE", "").strip().lower() == "true"
