@@ -29,6 +29,10 @@ from safetensors.torch import load_file
 from diffusers.pipelines import ImagePipelineOutput
 import inspect
 import time
+if os.environ.get("AUTO_QUANTIZE"):
+    from torchao.quantization import autoquant
+    from torchao.quantization.autoquant import AUTOQUANT_CACHE
+    import pickle
 
 logger = logging.getLogger(__name__)
 
@@ -181,8 +185,6 @@ class TextToImagePipeline(Pipeline):
             torch._inductor.config.epilogue_fusion = False
             torch._inductor.config.coordinate_descent_check_all_directions = True
             self.ldm.transformer.fuse_qkv_projections()
-            
-            
             if not self.ldm.transformer is None:
                 self.ldm.transformer.to(memory_format=torch.channels_last)
                 self.ldm.transformer = torch.compile(
@@ -200,6 +202,25 @@ class TextToImagePipeline(Pipeline):
                 vae_ldm.vae.decode = torch.compile(
                     vae_ldm.vae.decode, mode="max-autotune", fullgraph=True
                 )
+
+        if os.environ.get("AUTO_QUANTIZE"):
+            #https://github.com/sayakpaul/diffusers-torchao
+            quantized_path = folder_path+"/quantized"
+            if os.path.exists(quantized_path):
+                #load saved autoquant cache mapping and quantize
+                with open(quantized_path+"/auto-quant-cache.pkl", "rb") as f:
+                    AUTOQUANT_CACHE.update(pickle.load(f))
+                self.ldm.transformer = autoquant(self.ldm.transformer, error_on_unseen=False)
+            else:
+                #quantize and save the model
+                os.makedirs(quantized_path)
+                
+                self.ldm.transformer.save(quantized_path+"/autoquant")
+                with open(quantized_path+"/auto-quant-cache.pkl", "wb") as f:
+                    pickle.dump(AUTOQUANT_CACHE)
+                self.ldm.transformer = autoquant(self.ldm.transformer, error_on_unseen=False)
+
+                
 
         sfast_enabled = os.getenv("SFAST", "").strip().lower() == "true"
         deepcache_enabled = os.getenv("DEEPCACHE", "").strip().lower() == "true"
