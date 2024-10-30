@@ -31,13 +31,11 @@ RUN pyenv install $PYTHON_VERSION && \
 # Upgrade pip and install your desired packages
 ARG PIP_VERSION=23.3.2
 RUN pip install --no-cache-dir --upgrade pip==${PIP_VERSION} setuptools==69.5.1 wheel==0.43.0 && \
-  pip install --no-cache-dir torch==2.1.1 torchvision==0.16.1 torchaudio==2.1.1
+  pip install --no-cache-dir torch==2.5.0 torchvision==0.20 torchaudio==2.5.0 --index-url https://download.pytorch.org/whl/cu121
 
 WORKDIR /app
 COPY ./requirements.txt /app
 RUN pip install --no-cache-dir -r requirements.txt
-
-RUN pip install https://github.com/chengzeyi/stable-fast/releases/download/v1.0.3/stable_fast-1.0.3+torch211cu121-cp311-cp311-manylinux2014_x86_64.whl
 
 # Most DL models are quite large in terms of memory, using workers is a HUGE
 # slowdown because of the fork and GIL with python.

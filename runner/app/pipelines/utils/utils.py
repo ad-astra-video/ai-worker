@@ -149,6 +149,7 @@ def print_cuda_devices():
     logger.info("cuda devices available to runner:")
     for i in range(torch.cuda.device_count()):
         logger.info(torch.cuda.get_device_properties(i))
+    logger.info(f"pytorch version: {torch.__version__}")
         
 class SafetyChecker:
     """Checks images for unsafe or inappropriate content using a pretrained model.
