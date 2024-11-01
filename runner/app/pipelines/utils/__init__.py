@@ -13,7 +13,7 @@ from app.pipelines.utils.utils import (
     is_numeric,
     is_turbo_model,
     split_prompt,
-    validate_torch_device,
+    validate_torch_device
 )
 
 from app.pipelines.utils.schedulers import (
