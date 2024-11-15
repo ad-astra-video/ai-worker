@@ -1,0 +1,15 @@
+ARG BASE_IMAGE=livepeer/ai-runner:base
+FROM ${BASE_IMAGE}
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends cuda-toolkit-12-1 && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN pip uninstall -y torch torchvision torchaudio xformers 
+RUN pip install --upgrade pip wheel setuptools ninja packaging
+RUN pip install --pre --no-cache-dir torch torchvision torchaudio torchao --index-url https://download.pytorch.org/whl/nightly/cu121
+RUN pip install flash-attn --no-build-isolation
+
+ENV PYTHONUNBUFFERED=1
+ENV TORCHINDUCTOR_FX_GRAPH_CACHE=1
+ENV TORCHINDUCTOR_CACHE_DIR=/models
