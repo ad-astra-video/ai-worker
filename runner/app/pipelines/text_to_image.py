@@ -32,6 +32,9 @@ from diffusers.pipelines import ImagePipelineOutput
 import inspect
 import time
 
+from torch.profiler import profile, record_function, ProfilerActivity
+import cProfile
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,42 +52,8 @@ class ModelName(Enum):
         """Return a list of all model IDs."""
         return list(map(lambda c: c.value, cls))
 
-def warmup_pipeline(pipeline_cls, steps, **kwargs):
-    start = time.time()
-    logger.info(f"warming up pipeline")
-
-    if hasattr(pipeline_cls, "ldm2"):
-        encode_prompt_kwargs = inspect.signature(pipeline_cls.ldm2.encode_prompt).parameters.keys()
-        prompt_embeds, pooled_prompt_embeds, text_ids = pipeline_cls.ldm2.encode_prompt("a ball of string", "a ball of string", **{k: v for k, v in kwargs.items() if k in encode_prompt_kwargs})
-        logger.info(f"encode_prompt took: {time.time()-start} seconds")
-        start = time.time()
-        prompt_embeds = prompt_embeds.to(pipeline_cls.ldm._execution_device)
-        pooled_prompt_embeds = pooled_prompt_embeds.to(pipeline_cls.ldm._execution_device)
-        logger.info(f"prompt embeds conversion took: {time.time()-start} seconds")
-        start= time.time()
-        ldm_kwargs = inspect.signature(pipeline_cls.ldm.__call__).parameters.keys()
-        #run the transformer to do the quantization
-        pipeline_cls.ldm(prompt=None, prompt_2=None, 
-                prompt_embeds=prompt_embeds.to(pipeline_cls.ldm._execution_device), 
-                pooled_prompt_embeds=pooled_prompt_embeds.to(pipeline_cls.ldm._execution_device), 
-                height=1024, width=1024, num_inference_steps=steps,
-                output_type="latent", return_dict=False,
-                **{k: v for k, v in kwargs.items() if k in ldm_kwargs})
-    else:
-        #run the transformer to do the quantization
-        pipeline_cls.ldm(prompt="a ball of string", prompt_2=None, 
-                prompt_embeds=prompt_embeds.to(pipeline_cls.ldm._execution_device), 
-                pooled_prompt_embeds=pooled_prompt_embeds.to(pipeline_cls.ldm._execution_device), 
-                height=1024, width=1024, num_inference_steps=steps,
-                output_type="latent", return_dict=False,
-                **{k: v for k, v in kwargs.items() if k in ldm_kwargs})   
-
 def save_quantized_model(pipeline_cls, folder_path):
     torch.save(pipeline_cls.ldm.transformer.state_dict(), folder_path+"/quantized.pt")
-
-def warmup_and_save_quantized_model(pipeline_cls, folder_path, steps, **kwargs):
-    warmup_pipeline(pipeline_cls, steps, **kwargs)
-    save_quantized_model(pipeline_cls, folder_path)
 class TextToImagePipeline(Pipeline):
     def __init__(self, model_id: str):
         self.model_id = model_id
@@ -121,7 +90,7 @@ class TextToImagePipeline(Pipeline):
 
         if os.environ.get("MAX_MEMORY_PER_DEVICE", "") != "":
             kwargs["max_memory"] = set_max_memory(os.environ.get("MAX_MEMORY_PER_DEVICE"))
-        
+
         # Load VAE for specific models.
         if ModelName.REALISTIC_VISION_V6.value in model_id:
             vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-ema")
@@ -189,8 +158,13 @@ class TextToImagePipeline(Pipeline):
             if os.environ.get("FLUX_DEVICE_MAP_2_GPU", "") != "":
                 #setup all other components on GPU 1
                 self.ldm2 = FluxPipeline.from_pretrained(model_id, unet=None, transformer=None, **kwargs).to("cuda:1")
+                torch.cuda.empty_cache()
+                gc.collect()
                 #setup transformer for GPU 0 for inference
                 self.ldm = FluxPipeline.from_pretrained(model_id, text_encoder=None, text_encoder_2=None, tokenizer=None, tokenizer_2=None, vae=None, **kwargs)
+                torch.cuda.empty_cache()
+                gc.collect()
+
                 if os.environ.get("QUANTIZE_FP8"):
                     from torchao.quantization import quantize_, float8_dynamic_activation_float8_weight, float8_weight_only
                     from torchao.quantization.quant_api import PerRow
@@ -198,14 +172,10 @@ class TextToImagePipeline(Pipeline):
                     quantize_(self.ldm.transformer, float8_weight_only(), device="cuda:0")
                 elif os.environ.get("QUANTIZE_INT8"):
                     from torchao.quantization import quantize_, int8_weight_only
-                    #quantize_(self.ldm.transformer, float8_dynamic_activation_float8_weight(granularity=PerRow()), device="cuda:0")
                     quantize_(self.ldm.transformer, int8_weight_only(), device="cuda:0")
 
                 #move the transformer to GPU 0
                 self.ldm.to("cuda:0")
-                #send request to warmup pipeline
-                logger.info("warming up pipeline to quantize")
-                warmup_pipeline(self, 1, **kwargs)
             elif os.environ.get("FLUX_DEVICE_MAP_1_GPU", "") != "":
                 self.ldm = FluxPipeline.from_pretrained(model_id, **kwargs)
                 self.ldm.enable_model_cpu_offload()
@@ -222,16 +192,23 @@ class TextToImagePipeline(Pipeline):
         if "device_map" in kwargs:
             logger.info(f"pipeline device map: {self.ldm.hf_device_map}")
         
+        
         #save the default scheduler
         self.default_scheduler = deepcopy(self.ldm.scheduler)
         #load the scheduler presets
         self.scheduler_presets = load_scheduler_presets(self.__class__.__name__)
         logger.info(f"loaded scheduler presets for {self.__class__.__name__}")
-       
+
         self._lora_loader = LoraLoader(self.ldm)
+
         if os.environ.get("FAST_FLUX"):
             self._lora_loader.load_loras("{\"ad-astra-video/HyperFlux\": 0.125}")
+        
         if os.environ.get("TORCH_COMPILE"):
+            #https://huggingface.co/docs/diffusers/main/en/optimization/fp16#use-tensorfloat-32 
+            #only works on Ampere and later GPUs
+            #torch.backends.cuda.matmul.allow_tf32 = True
+
             torch._inductor.config.conv_1x1_as_mm = True
             torch._inductor.config.coordinate_descent_tuning = True
             torch._inductor.config.epilogue_fusion = False
@@ -240,25 +217,41 @@ class TextToImagePipeline(Pipeline):
             if hasattr(self.ldm, "transformer") and  not self.ldm.transformer is None:
                 self.ldm.transformer.to(memory_format=torch.channels_last)
                 self.ldm.transformer = torch.compile(
-                    self.ldm.transformer, mode="max-autotune", fullgraph=True
+                    self.ldm.transformer, 
+                    mode="reduce-overhead", 
+                    fullgraph=False,
+                    dynamic=True
                 )
             if hasattr(self.ldm, "unet") and not self.ldm.unet is None:
                 self.ldm.unet.to(memory_format=torch.channels_last)
                 self.ldm.unet = torch.compile(
-                self.ldm.unet, mode="max-autotune", fullgraph=True
+                    self.ldm.unet, 
+                    mode="reduce-overhead", 
+                    fullgraph=False,
+                    dynamic=True
             )
+            
             vae_ldm = self.ldm2 if os.environ.get("FLUX_DEVICE_MAP_2_GPU", "") != "" else self.ldm 
             #vae_ldm.fuse_qkv_projections() #does not work on Flux pipeline?
-            if not vae_ldm.vae is None:
+            if not vae_ldm is None:
                 vae_ldm.vae.to(memory_format=torch.channels_last)
                 vae_ldm.vae.decode = torch.compile(
-                    vae_ldm.vae.decode, mode="max-autotune", fullgraph=True
+                    vae_ldm.vae.decode, 
+                    mode="default",
+                    fullgraph=False,
+                    dynamic=True
                 )
             #warmup pipeline to compile the pipleine
-            logger.info("warming up pipeline to profile")
-            warmup_pipeline(self, 50, **kwargs)
             logger.info("warming up pipeline to compile")
-            warmup_pipeline(self, 50, **kwargs)
+            #resolutions to warm up for different aspect ratios
+            #resolutions = [(1024, 1024), (912, 1152), (1024, 576), (576, 1024)]
+            #for res in resolutions:
+            self(prompt="livepeer sphere", num_inference_steps=50, height=320, width=320, guidance_scale=3.5, safety_check=False)
+            torch.cuda.empty_cache()
+            gc.collect()
+            self(prompt="livepeer sphere", num_inference_steps=50, height=1408, width=1408, guidance_scale=3.5, safety_check=False)
+            
+
 
         sfast_enabled = os.getenv("SFAST", "").strip().lower() == "true"
         deepcache_enabled = os.getenv("DEEPCACHE", "").strip().lower() == "true"
@@ -325,12 +318,12 @@ class TextToImagePipeline(Pipeline):
                 ]
 
         # Dynamically (un)load LoRas
-        if not os.environ.get("TORCH_COMPILE"):
-            if not loras_json:
-                if not os.environ.get("FAST_FLUX"):
-                    self._lora_loader.disable_loras()
-            else:
-                self._lora_loader.load_loras(loras_json)
+        #if not os.environ.get("TORCH_COMPILE"):
+        if not loras_json:
+            if not os.environ.get("FAST_FLUX"):
+                self._lora_loader.disable_loras()
+        else:
+            self._lora_loader.load_loras(loras_json)
 
         if "num_inference_steps" in kwargs and (
             kwargs["num_inference_steps"] is None or kwargs["num_inference_steps"] < 1
@@ -420,11 +413,30 @@ class TextToImagePipeline(Pipeline):
                 logger.info(f"latents conversion took: {time.time()-start} seconds")
                 start = time.time()
                 latents = self.ldm2._unpack_latents(latents, kwargs["height"], kwargs["width"], self.ldm2.vae_scale_factor)
+                logger.info(f"unpack latents took: {time.time()-start} seconds")
+                start = time.time()
                 latents = (latents / self.ldm2.vae.config.scaling_factor) + self.ldm2.vae.config.shift_factor
+                logger.info(f"scaling latents took: {time.time()-start} seconds")
+                start = time.time()
+                #with profile(activities=[ProfilerActivity.CUDA, ProfilerActivity.CPU], record_shapes=True) as prof:
+                #    with record_function("vae_decode"):
+                #        logger.info(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
+                
                 image = self.ldm2.vae.decode(latents, return_dict=False)[0]
-                image = self.ldm2.image_processor.postprocess(image) #only support default output_type="pil"
                 logger.info(f"vae decode took: {time.time()-start} seconds")
 
+                start = time.time()               
+                #pr = cProfile.Profile()
+                #pr.enable()
+                #logger.info(f"image latents type: {latents.dtype} {latents[0].get_device()}")
+                #image = image.cpu()
+                logger.info(f"image latents type: {latents.dtype} {latents[0].get_device()}")
+                image = self.ldm2.image_processor.postprocess(image, output_type="pil") #only support default output_type="pil"
+                #pr.disable()
+                #pr.print_stats(sort='cumtime')
+
+                logger.info(f"image post processing took: {time.time()-start} seconds")
+                
                 output = ImagePipelineOutput(images=image)
         else:
             output = self.ldm(prompt=prompt, **kwargs)
