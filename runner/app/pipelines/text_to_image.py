@@ -10,7 +10,6 @@ import torch
 from diffusers import (
     AutoPipelineForText2Image,
     EulerDiscreteScheduler,
-    StableDiffusion3Pipeline,
     StableDiffusionXLPipeline,
     UNet2DConditionModel,
 )
@@ -32,6 +31,7 @@ from app.utils.errors import InferenceError
 
 from app.pipelines.device_maps import (
     LPFluxPipeline,
+    LPStableDiffusion3Pipeline,
 )
 
 logger = logging.getLogger(__name__)
@@ -132,10 +132,8 @@ class TextToImagePipeline(Pipeline):
                 self.ldm.scheduler.config, timestep_spacing="trailing"
             )
         elif ModelName.SD3.value in model_id:
-            self.ldm = StableDiffusion3Pipeline.from_pretrained(model_id, **kwargs).to(
-                torch_device
-            )
             kwargs["torch_dtype"] = torch.bfloat16
+            self.ldm = LPStableDiffusion3Pipeline(model_id, os.environ.get("DEVICE_MAP", ""), torch_device, **kwargs)
         elif (
             ModelName.FLUX_1_SCHNELL.value in model_id
             or ModelName.FLUX_1_DEV.value in model_id
