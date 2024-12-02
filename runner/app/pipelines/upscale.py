@@ -218,6 +218,7 @@ class UpscalePipeline(Pipeline):
         try:
             if self.model_id == "stabilityai/stable-diffusion-x4-upscaler":   
                 outputs = self.ldm(prompt, image=image, **kwargs)
+                torch.cuda.empty_cache() # free up memory
             else:
                 max_scale = self.get_max_scale_for_input(image)
                 if self.ldm.scale > max_scale:
