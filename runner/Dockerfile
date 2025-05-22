@@ -1,6 +1,6 @@
 # Based on https://github.com/huggingface/api-inference-community/blob/main/docker_images/diffusers/Dockerfile
 
-FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu20.04
+FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
 LABEL maintainer="Yondon Fu <yondon@livepeer.org>"
 
 # Add any system dependency here
@@ -30,8 +30,8 @@ RUN pyenv install $PYTHON_VERSION && \
 
 # Upgrade pip and install your desired packages
 ARG PIP_VERSION=23.3.2
-RUN pip install --no-cache-dir --upgrade pip==${PIP_VERSION} setuptools==69.5.1 wheel==0.43.0 && \
-  pip install --no-cache-dir torch==2.1.1 torchvision==0.16.1 torchaudio==2.1.1
+RUN pip install --no-cache-dir --upgrade pip==${PIP_VERSION} setuptools wheel && \
+  pip install --no-cache-dir torch==2.7 torchvision torchaudio xformers --index-url https://download.pytorch.org/whl/cu128
 
 ARG VERSION="undefined"
 ENV VERSION=${VERSION}
@@ -41,7 +41,8 @@ WORKDIR /app
 COPY ./requirements.txt /app
 RUN pip install --no-cache-dir -r requirements.txt
 
-RUN pip install https://github.com/chengzeyi/stable-fast/releases/download/v1.0.3/stable_fast-1.0.3+torch211cu121-cp311-cp311-manylinux2014_x86_64.whl
+#do not use SFAST - torch compile is currently maintained speed up now
+#RUN pip install https://github.com/chengzeyi/stable-fast/releases/download/v1.0.3/stable_fast-1.0.3+torch211cu121-cp311-cp311-manylinux2014_x86_64.whl
 
 # Most DL models are quite large in terms of memory, using workers is a HUGE
 # slowdown because of the fork and GIL with python.
