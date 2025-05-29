@@ -20,6 +20,7 @@ from app.pipelines.utils import (
 from app.utils.errors import InferenceError
 from diffusers import (
     AutoPipelineForImage2Image,
+    AutoPipelineForInpainting,
     EulerAncestralDiscreteScheduler,
     EulerDiscreteScheduler,
     StableDiffusionInstructPix2PixPipeline,
@@ -197,12 +198,12 @@ class ImageToImagePipeline(Pipeline):
         self._lora_loader = LoraLoader(self.ldm)
 
     def __call__(
-        self, prompt: str, image: PIL.Image, **kwargs
+        self, prompt: str, image: PIL.Image, mask_image: PIL.Image | None, **kwargs
     ) -> Tuple[List[PIL.Image], List[Optional[bool]]]:
         seed = kwargs.pop("seed", None)
         safety_check = kwargs.pop("safety_check", True)
         loras_json = kwargs.pop("loras", "")
-
+            
         if seed is not None:
             if isinstance(seed, int):
                 kwargs["generator"] = torch.Generator(get_torch_device()).manual_seed(
@@ -265,8 +266,15 @@ class ImageToImagePipeline(Pipeline):
         else:
             self.ldm.scheduler = self.default_scheduler
         
+        #use inpainting pipeline if mask_image is provided
+        pipe = None
+        if mask_image:
+            pipe = AutoPipelineForImage2Image.from_pipe(self.ldm)
+        else:
+            pipe = self.ldm
+
         try:
-            outputs = self.ldm(prompt, image=image, **kwargs)
+            outputs = pipe(prompt, image=image, **kwargs)
         except torch.cuda.OutOfMemoryError as e:
             raise e
         except Exception as e:
