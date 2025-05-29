@@ -195,6 +195,7 @@ async def image_to_image(
             pipeline_call = partial(pipeline, 
                                     prompt=prompt,
                                     image=image,
+                                    mask_image=mask_image,
                                     strength=strength,
                                     loras=loras,
                                     guidance_scale=guidance_scale,
