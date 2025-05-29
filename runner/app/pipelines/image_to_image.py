@@ -198,7 +198,7 @@ class ImageToImagePipeline(Pipeline):
         self._lora_loader = LoraLoader(self.ldm)
 
     def __call__(
-        self, prompt: str, image: PIL.Image, mask_image: PIL.Image | None, **kwargs
+        self, prompt: str, image: PIL.Image, mask_image: PIL.Image, **kwargs
     ) -> Tuple[List[PIL.Image], List[Optional[bool]]]:
         seed = kwargs.pop("seed", None)
         safety_check = kwargs.pop("safety_check", True)
