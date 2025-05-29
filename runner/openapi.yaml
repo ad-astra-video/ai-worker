@@ -617,6 +617,11 @@ components:
           format: binary
           title: Image
           description: Uploaded image to modify with the pipeline.
+        mask_image:
+          type: string
+          format: binary
+          title: Mask Image
+          description: Optional mask image to guide the transformation.
         model_id:
           type: string
           title: Model Id

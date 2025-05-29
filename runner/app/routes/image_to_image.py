@@ -80,6 +80,10 @@ async def image_to_image(
         UploadFile,
         File(description="Uploaded image to modify with the pipeline."),
     ],
+    mask_image: Annotated[
+        UploadFile,
+        File(description="Optional mask image to guide the transformation."),
+    ] = None,
     model_id: Annotated[
         str,
         Form(description="Hugging Face model ID used for image generation."),
