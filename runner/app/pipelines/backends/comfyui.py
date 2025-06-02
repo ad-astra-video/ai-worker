@@ -16,6 +16,7 @@ import io
 import sys
 import threading
 from PIL import Image
+import torch
 
 logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.FATAL)
@@ -31,7 +32,7 @@ class ComfyUIBackend(Backend):
             self.backend_ports = [str(i) for i in range(int(self.backend_ports[0]), int(self.backend_ports[1])+1)]
         
         self.pipeline_ports = {} #dict of pipelines and assigned ports from available backend ports
-
+        
         self.pipelines_lock = threading.Lock()
         self.pipelines = {}
         self.backend_runner_locks = {}
@@ -107,8 +108,6 @@ class ComfyUIBackend(Backend):
         resumable_download(model_url, file_path)
    
     def _update_prompt_fields(self, prompt: str, data: dict) -> str:
-        # This function formats the prompt with the provided data.
-        # You can implement your own logic to format the prompt here.
         return re.sub(r"\|([^|]+)\|", lambda m: str(data.get(m.group(1), m.group(0))), prompt)
     
     def _extract_seed_from_prompt(self, prompt: str) -> int:
@@ -175,11 +174,11 @@ class ComfyUIBackend(Backend):
                     continue
 
                 self.pipeline_ports[pipeline] = self.backend_ports.pop(0)
-                create_pipeline_runner_config(pipeline, self.pipeline_ports[pipeline])
+                create_pipeline_runner_config(pipeline, self.pipeline_ports[pipeline], pipeline)
             else:
                 #no extra nodes or requirements to install we can use the core venv
-                logger.info(f"no custom nodes found for {pipeline}, will use core comfyui environment")
-                self.pipeline_ports[pipeline] = "7860"
+                self.pipeline_ports[pipeline] = self.backend_ports.pop(0)
+                create_pipeline_runner_config(pipeline, self.pipeline_ports[pipeline], "comfyui-base")
 
             #------------------------------
             # download models
@@ -190,34 +189,38 @@ class ComfyUIBackend(Backend):
                     model_url = pipeline_settings['models'][model]
                     self._download_model(model_url, model_path)
             
+            #------------------------------
+            #download static inputs to workflow if needed
+            #------------------------------
+            if "inputs" in pipeline_settings:
+                for input in pipeline_settings["inputs"]:
+                    input_save_path = "/app/workspace/input"
+                    if "subfolder" in pipeline_settings["inputs"][input]:
+                        input_save_path = os.path.join(input_save_path, pipeline_settings["inputs"][input]["subfolder"])
+                    input_save_path = os.path.join(input_save_path, pipeline_settings["inputs"][input]["name"])
+                
+                    self._download_model(pipeline_settings["inputs"][input]["url"], input_save_path)
+
             #setup tracking of the pipeline
             self.backend_runner_locks[pipeline] = asyncio.Lock()
             self.backend_runner_last_used[pipeline] = 0
+
         #release lock
         self.pipelines_lock.release()
 
-    async def stop_pipelines(self):
-        last_used = self.backend_runner_last_used[pipeline_id]
-        idle_timeout = 60 #default to 60 seconds idle timeout
-        for pipeline_id in self.pipelines:
-            if "keep_alive" in self.pipelines[pipeline_id]:
-                idle_timeout = int(self.pipelines[pipeline_id]["keep_alive"])
+    async def stop_pipeline(self, pipeline_id: str):
+        if pipeline_id not in self.pipelines:
+            logger.error(f"Pipeline {pipeline_id} not found, cannot stop")
+            return
         
-            if last_used < (time.time() - idle_timeout):
-                logger.info(f"Stopping pipeline {pipeline_id}, idle longer than after {idle_timeout}")
-                #stop the backend
-                await self.backend_runner_locks[pipeline_id].acquire()
-                stop_backend(pipeline_id)
-                self.backend_runner_locks[pipeline_id].release()
-    
-    async def process(self, pipeline_name: str, model_id: str, params: Dict[str, any], files: Dict[str, any]):
-        pipeline_id = pipeline_name + "--" + model_id.replace("/","--")
-        #update the last used time, use under lock to prevent race of stopping the backend while trying to process
+        #stop the backend
         await self.backend_runner_locks[pipeline_id].acquire()
-        self.backend_runner_last_used[pipeline_id] = time.time()
+        stop_backend(pipeline_id)
         self.backend_runner_locks[pipeline_id].release()
-
-        logger.info(f"ComfyUI workflow proxying for path: {pipeline_name}")
+        logger.info(f"Pipeline {pipeline_id} stopped")
+    
+    async def process(self, cuda_device: int, pipeline_id: str, params: Dict[str, any], files: Dict[str, any]):
+        logger.info(f"ComfyUI workflow proxying for path: {pipeline_id}")
         
         pipeline_settings_path = f"/app/settings/pipelines/comfyui--{pipeline_id}.json"
         if not os.path.exists(pipeline_settings_path):
@@ -244,11 +247,7 @@ class ComfyUIBackend(Backend):
             logger.info(f"Backend not running, starting backend for {pipeline_id}: {e}")
         
         if not backend_running:
-            if "nodes" in pipeline_settings:
-                #start the backend with the pipeline id
-                start_backend(pipeline_id)
-            else:
-                start_backend("comfyui-base") #no custom nodes needed, use default environment
+            start_backend(pipeline_id, cuda_device)
 
             #wait for startup
             while True:
@@ -262,43 +261,56 @@ class ComfyUIBackend(Backend):
                     logger.error(f"Error connecting to ComfyUI backend: {e}")
 
         #upload the files and add to the prompt
-        if files:
-            for file in files:
-                filename, file_content, content_type = files[file]
-                upload_data = {
-                    "overwrite": "true",
-                    "type": "input"
-                }
-                
-                if content_type == "image/mask":
-                    upload_files = {"image": (filename, file_content, "image/png")}
-                    resp = await client.post(
-                        url=f"{backend_url}/upload/mask",
-                        data=upload_data,
-                        files=upload_files,
-                    )
+        inputs_to_remove = []
+        for file in files:
+            filename, file_content, content_type = files[file]
 
-                    if resp.status_code != 200:
-                        raise ValueError(f"Failed to upload mask: {resp.text}")
-                elif content_type == "image/png":
-                    upload_files = {"image": (filename, file_content, "image/png")}
-                    resp = await client.post(
-                        url=f"{backend_url}/upload/image",
-                        data=upload_data,
-                        files=upload_files,
-                    )
+            upload_data = {
+                "overwrite": "true",
+                "type": "input"
+            }
+            
+            if content_type == "image/mask":
+                upload_files = {"image": (filename, file_content, "image/png")}
+                resp = await client.post(
+                    url=f"{backend_url}/upload/mask",
+                    data=upload_data,
+                    files=upload_files,
+                )
 
-                    if resp.status_code != 200:
-                        raise ValueError(f"Failed to upload image: {resp.text}")
+                if resp.status_code != 200:
+                    raise ValueError(f"Failed to upload mask: {resp.text}")
+            elif "image/" in content_type:
+                upload_files = {"image": (filename, file_content, content_type)}
+                resp = await client.post(
+                    url=f"{backend_url}/upload/image",
+                    data=upload_data,
+                    files=upload_files,
+                )
 
-                #update the prompt with the uploaded file path
-                result = resp.json()
-                params[file] = result["filename"]
-        
+                if resp.status_code != 200:
+                    raise ValueError(f"Failed to upload image: {resp.text}")
+            
+            
+            result = resp.json()
+            if result['subfolder']:
+                inputs_to_remove.append(f"/app/workspace/{result['type']}/{result['subfolder']}/{result['name']}")
+            else:
+                inputs_to_remove.append(f"/app/workspace/{result['type']}/{result['name']}")
+            
+            #update the prompt with the uploaded file path
+            params[file] = result["name"]
+            
+        #add defaults if needed
+        if "defaults" in pipeline_settings:
+            for input in pipeline_settings["defaults"]:
+                if not input in params:
+                    params[input] = pipeline_settings["defaults"][input]
+
         #update the prompt for processing
         prompt = json.dumps(pipeline_settings["prompt"])
         prompt_with_data = self._update_prompt_fields(prompt, params)
-        logger.debug(f"Prompt with data: {prompt_with_data}")
+        logger.info(f"Prompt with data: {prompt_with_data}")
         #queue the prompt
         resp = await client.post(
             url=f"{backend_url}/prompt",
@@ -347,7 +359,7 @@ class ComfyUIBackend(Backend):
         #download the output files and return
         combined_output = []
         outputs = prompt_result.get("outputs", {})
-        print(prompt_result.get("prompt", {}))
+        
         seed = self._extract_seed_from_prompt(json.dumps(prompt_result.get("prompt", {})))
         
         for output_node in outputs:
@@ -367,6 +379,14 @@ class ComfyUIBackend(Backend):
                         elif output_type == "json":
                             combined_output.append({"text": result.content})        
 
+        try:
+            #remove the input files from the workspace
+            for input_file in inputs_to_remove:
+                if os.path.exists(input_file):
+                    os.remove(input_file)
+        except Exception as e:
+            logger.error(f"Failed to remove input file(s): {e}")
+        
         return combined_output
         
 

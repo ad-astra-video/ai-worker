@@ -41,7 +41,7 @@ RUN pyenv virtualenv $PYTHON_VERSION comfyui-playground --system-site-packages
 RUN eval "$(pyenv init -)" && eval "$(pyenv virtualenv-init -)" && pyenv activate comfyui-base && pip install --no-cache-dir --upgrade pip setuptools wheel && \
   pip install --no-cache-dir torch==2.7 torchvision torchaudio transformers diffusers numpy>=1.26.4 accelerate tqdm && \
   pip install git+https://github.com/huggingface/diffusers && \
-  pip install comfy-cli fastapi uvicorn httpx nvidia-ml-py==12.560.30 pynvml==12.0.0 prometheus_client>=0.21.1 GitPython
+  pip install comfy-cli fastapi uvicorn httpx nvidia-ml-py==12.560.30 pynvml==12.0.0 prometheus_client>=0.21.1 GitPython python-multipart
 
 RUN eval "$(pyenv init -)" && eval "$(pyenv virtualenv-init -)" && pyenv activate comfyui-playground && pip install --no-cache-dir --upgrade pip setuptools wheel && \
   pip install --no-cache-dir torch==2.7 torchvision torchaudio transformers diffusers numpy>=1.26.4 accelerate tqdm && \
@@ -85,6 +85,8 @@ ENV MODEL_DIR=/models
 
 #env variable used to load venv for pipelines
 ENV PIPELINE_VENV=comfyui
+
+RUN git config --global --add safe.directory /app/workspace/custom_nodes
 
 COPY app/ /app/app
 

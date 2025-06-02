@@ -1,7 +1,26 @@
 
 import subprocess
-
+import re
+PIPELINE_CONF = "/etc/supervisor/conf.d/{pipeline_id}.conf"
 init_pyenv = 'eval "$(pyenv init -)" && eval "$(pyenv virtualenv-init -)"'
+
+def set_backend_device(pipeline_id, cuda_device=0):
+    pipeline_conf_file = PIPELINE_CONF.format(pipeline_id=pipeline_id)
+    with open(pipeline_conf_file, 'r') as f:
+        lines = f.readlines()
+
+    pattern = re.compile(r'(CUDA_VISIBLE_DEVICES=)(\S+)')
+    updated_lines = []
+
+    for line in lines:
+        if line.strip().startswith('environment=') and 'CUDA_VISIBLE_DEVICES=' in line:
+            line = pattern.sub(r'\g<1>' + str(cuda_device), line)
+        updated_lines.append(line)
+
+    with open(pipeline_conf_file, 'w') as f:
+        f.writelines(updated_lines)
+
+    print(f"Updated CUDA_VISIBLE_DEVICES to {cuda_device} in {pipeline_conf_file}")
 
 def run_command(command):
     """
@@ -14,29 +33,30 @@ def run_command(command):
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Command '{command}' failed with error: {e.stderr}")
 
-def start_backend(backend):
+def start_backend(pipeline_id, cuda_device=0):
     """
     Start the backend using the provided command.
     """
-    #check if running
+    if pipeline_id != "comfyui-playground":
+        set_backend_device(pipeline_id, cuda_device)
 
     try:
-        result = subprocess.run(f"supervisorctl -s unix:///tmp/supervisor.sock start {backend}", shell=True, check=True, capture_output=True, text=True)
+        result = subprocess.run(f"supervisorctl -s unix:///tmp/supervisor.sock start {pipeline_id}", shell=True, check=True, capture_output=True, text=True)
         return result.stdout
     except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"failed to start backend {backend}: {e.stderr}")
+        raise RuntimeError(f"failed to start backend {pipeline_id}: {e.stderr}")
 
-def stop_backend(backend):
+def stop_backend(pipeline_id):
     """
     Stop the backend using the provided command.
     """
     try:
-        result = subprocess.run(f"supervisorctl -s unix:///tmp/supervisor.sock stop {backend}", shell=True, check=True, capture_output=True, text=True)
+        result = subprocess.run(f"supervisorctl -s unix:///tmp/supervisor.sock stop {pipeline_id}", shell=True, check=True, capture_output=True, text=True)
         return result.stdout
     except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"failed to stop backend {backend}: {e.stderr}")
+        raise RuntimeError(f"failed to stop backend {pipeline_id}: {e.stderr}")
     
-def create_pipeline_runner_config(pipeline_id, port):
+def create_pipeline_runner_config(pipeline_id, port, venv_name):
 
     """
     Create a pipeline runner config file.
@@ -51,9 +71,9 @@ def create_pipeline_runner_config(pipeline_id, port):
     stdout_logfile_maxbytes=0
     redirect_stderr=true
     autorestart=true
-    environment=PYTHONUNBUFFERED=1,PIPELINE_VENV={pipeline_id},PYTHONPATH=/root/.pyenv/versions/comfyui-base
+    environment=PYTHONUNBUFFERED=1,PIPELINE_VENV={venv_name},PYTHONPATH=/root/.pyenv/versions/comfyui-base,CUDA_VISIBLE_DEVICES=0
     """
-    config = config.format(pipeline_id=pipeline_id, port=port)
+    config = config.format(pipeline_id=pipeline_id, port=port, venv_name=venv_name)
     with open(f"/etc/supervisor/conf.d/{pipeline_id}.conf", "w") as f:
         f.write(config)
     

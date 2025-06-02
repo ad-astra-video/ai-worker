@@ -5,11 +5,8 @@ from typing import Union, Dict
 
 from fastapi import APIRouter, Request, Response, Depends, File, Form, status
 from fastapi.responses import StreamingResponse, JSONResponse
-from fastapi.datastructures import UploadFile as FastAPIUploadFile
-from starlette.datastructures import FormData
+from starlette.datastructures import FormData, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-
-
 
 from app.pipelines.base import Pipeline
 
@@ -77,28 +74,6 @@ async def refresh_pipelines(pipeline: Pipeline = Depends(get_pipeline),
             content=http_error(f"Failed to refresh pipelines. error={e}"),
         )
 
-@router.post("/pipelines/stop", response_model=None)
-async def stop_pipelines(pipeline: Pipeline = Depends(get_pipeline),
-                        ) -> JSONResponse:
-    """
-    Stop the pipelines.
-    """
-    try:
-        # Assuming you have a function to stop the pipeline
-        await pipeline.stop_pipelines()
-        
-        logger.info("Pipelines stopped successfully.")
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content={"message": "Pipelines stopped successfully."},
-        )
-    except Exception as e:
-        logger.error(f"Error stopping pipelines: {e}")
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content=http_error(f"Failed to stop pipeline. {e}"),
-        )
-
 @router.api_route("/{pipeline_name:path}", 
                   response_model=None,
                   methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
@@ -129,18 +104,19 @@ async def proxy(pipeline_name: str,
         params.update(await request.json())
         logger.info(f"Received JSON data: {params}")
     elif "multipart/form-data" in content_type:
-        form: FormData = await request.form()
+        form = await request.form()
         files = {}
 
         for key, value in form.multi_items():
-            if isinstance(value, FastAPIUploadFile):
+            if isinstance(value, UploadFile):
+                logger.info(f"Received file upload: {key} with filename {value.filename}")
                 files[key] = (value.filename, await value.read(), value.content_type)
-            elif value.content_type == "application/json":
+            elif isinstance(value, str):
+                # Handle string values in multipart form
+                params[key] = value
+            elif content_type == "application/json":
                 part_data = await value.read()
                 params.update(json.loads(part_data))
-            else:
-                #data sent as form field in plain text
-                params[key] = value
 
     else:
         return JSONResponse(
