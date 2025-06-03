@@ -60,6 +60,7 @@ class BatchPipeline(Pipeline):
         cuda_device = -1
         if pipeline_id in self.pipeline_gpus:
             cuda_device = self.pipeline_gpus[pipeline_id]
+            logger.info(f"Pipeline {pipeline_id} is already running on GPU {cuda_device}. Reusing the GPU.")
         else:
             # if the pipeline is not running, allocate a GPU
             async with self.gpus_lock:
@@ -95,7 +96,7 @@ class BatchPipeline(Pipeline):
         #get the GPU device lock for the allocated GPU, release it after processing
         start = time.time()
         async with self.gpu_device_locks[cuda_device]:
-            logger.info(f"Processing pipeline {pipeline_id} on GPU {cuda_device} with backend {backend}   waited={start-time.time()}seconds.")
+            logger.info(f"Processing pipeline {pipeline_id} on GPU {cuda_device} with backend {backend}   waited={round(time.time()-start,2)}seconds.")
             result = await self.backends[backend].process(cuda_device, pipeline_id, params, files, **kwargs)
 
             if "safety_check" in kwargs:

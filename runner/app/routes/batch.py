@@ -97,7 +97,7 @@ async def proxy(pipeline_name: str,
 
     content_type = request.headers.get("content-type", "")
     
-    files = None
+    files = {}
     params = dict(request.query_params)
     
     if "application/json" in content_type:
@@ -105,7 +105,6 @@ async def proxy(pipeline_name: str,
         logger.info(f"Received JSON data: {params}")
     elif "multipart/form-data" in content_type:
         form = await request.form()
-        files = {}
 
         for key, value in form.multi_items():
             if isinstance(value, UploadFile):

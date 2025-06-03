@@ -40,7 +40,7 @@ class ComfyUIBackend(Backend):
 
         self.setup_pipelines()
         
-        start_backend("comfyui-playground") #start the comfyui backend
+        start_backend("comfyui-playground", 0) #start the comfyui backend
 
     def _create_pipeline_env(self, pipeline):
         logger.info(f"Creating virtualenv for {pipeline}")
