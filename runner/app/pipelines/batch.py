@@ -80,13 +80,14 @@ class BatchPipeline(Pipeline):
                     #stop the pipeline longest not used and use that GPU
                     sorted_pipelines = sorted(self.pipeline_last_used, key=self.pipeline_last_used.get)
                     
-                    for pipeline_id in sorted_pipelines:
-                        cuda_device = self.pipeline_gpus[pipeline_id]
-                        if await self.passes_restrictions(self.pipeline_restrictions.get(pipeline_id, {}), cuda_device):
+                    for running_pipeline_id in sorted_pipelines:
+                        cuda_device = self.pipeline_gpus[running_pipeline_id]
+                        if await self.passes_restrictions(self.pipeline_restrictions.get(running_pipeline_id, {}), cuda_device):
                             async with self.gpu_device_locks[cuda_device]:
-                                await self.backends[backend].stop_pipeline(pipeline_id)
-                                self.pipeline_gpus[pipeline_id] = cuda_device
-                
+                                await self.backends[backend].stop_pipeline(running_pipeline_id)
+                                self.pipeline_gpus[running_pipeline_id] = cuda_device
+                                break
+
                 if cuda_device == -1:
                     logger.info(f"Pipeline {pipeline_id} has no available GPUs that pass the restrictions, trying to stop a pipeline to free up a GPU.")
                     return None

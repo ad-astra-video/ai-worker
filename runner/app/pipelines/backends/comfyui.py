@@ -209,15 +209,12 @@ class ComfyUIBackend(Backend):
         self.pipelines_lock.release()
 
     async def stop_pipeline(self, pipeline_id: str):
-        if pipeline_id not in self.pipelines:
-            logger.error(f"Pipeline {pipeline_id} not found, cannot stop")
-            return
-        
+        start = time.time()
+        logger.info(f"Stopping pipeline {pipeline_id}...")
         #stop the backend
-        await self.backend_runner_locks[pipeline_id].acquire()
-        stop_backend(pipeline_id)
-        self.backend_runner_locks[pipeline_id].release()
-        logger.info(f"Pipeline {pipeline_id} stopped")
+        async with self.backend_runner_locks[pipeline_id]:
+            stop_backend(pipeline_id)
+            logger.info(f"Pipeline {pipeline_id} stopped took={time.time() - start:.2f}seconds")
     
     async def process(self, cuda_device: int, pipeline_id: str, params: Dict[str, any], files: Dict[str, any]):
         logger.info(f"ComfyUI workflow proxying for path: {pipeline_id}")
@@ -312,48 +309,49 @@ class ComfyUIBackend(Backend):
         prompt_with_data = self._update_prompt_fields(prompt, params)
         logger.info(f"Prompt with data: {prompt_with_data}")
         #queue the prompt
-        resp = await client.post(
-            url=f"{backend_url}/prompt",
-            json={"prompt":json.loads(prompt_with_data)},
-            timeout=None  # Optional: disable timeout for SSE
-        )
-
-        logger.info(f"Prompt queued")
-        if resp.status_code != 200:
-            raise ValueError(f"Failed to queue prompt: {resp.text}")
-
-        prompt_id = resp.json()
-        prompt_id = prompt_id["prompt_id"]
-        logger.info(f"Prompt ID: {prompt_id}")
-        status_json = {}
-        while True:
-            await asyncio.sleep(0.5)
-            status = await client.get(
-                url=f"{backend_url}/history/{prompt_id}",
+        async with self.backend_runner_locks[pipeline_id]:
+            resp = await client.post(
+                url=f"{backend_url}/prompt",
+                json={"prompt":json.loads(prompt_with_data)},
                 timeout=None  # Optional: disable timeout for SSE
             )
 
-            if status.status_code != 200:
-                break
-            print(status_json)
-            status_json = status.json()
-            #no status available, continue
-            if not prompt_id in status_json:
-                continue
-            prompt_result = status_json[prompt_id]
+            logger.info(f"Prompt queued")
+            if resp.status_code != 200:
+                raise ValueError(f"Failed to queue prompt: {resp.text}")
 
-            if 'status' in prompt_result:
-                prompt_result_status = prompt_result['status']
-                if prompt_result_status['completed']:
-                    if prompt_result_status['status_str'] == "success":
-                        logger.info(f"Prompt processed successfully: {prompt_id}")
-                    else:
-                        logger.error(f"Prompt processing failed: {prompt_id} {prompt_result_status}")
-                        raise ValueError(f"Prompt processing failed: {prompt_result_status}")
+            prompt_id = resp.json()
+            prompt_id = prompt_id["prompt_id"]
+            logger.info(f"Prompt ID: {prompt_id}")
+            status_json = {}
+            while True:
+                await asyncio.sleep(0.5)
+                status = await client.get(
+                    url=f"{backend_url}/history/{prompt_id}",
+                    timeout=None  # Optional: disable timeout for SSE
+                )
+
+                if status.status_code != 200:
+                    break
                 
-                break
+                status_json = status.json()
+                #no status available, continue
+                if not prompt_id in status_json:
+                    continue
+                prompt_result = status_json[prompt_id]
 
-            logger.info(f"Waiting for prompt to be processed: {prompt_id}")
+                if 'status' in prompt_result:
+                    prompt_result_status = prompt_result['status']
+                    if prompt_result_status['completed']:
+                        if prompt_result_status['status_str'] == "success":
+                            logger.info(f"Prompt processed successfully: {prompt_id}")
+                        else:
+                            logger.error(f"Prompt processing failed: {prompt_id} {prompt_result_status}")
+                            raise ValueError(f"Prompt processing failed: {prompt_result_status}")
+                    
+                    break
+
+                logger.info(f"Waiting for prompt to be processed: {prompt_id}")
             
         
         #download the output files and return
