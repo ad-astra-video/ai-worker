@@ -22,7 +22,6 @@ logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.FATAL)
 class ComfyUIBackend(Backend):
     def __init__(self):
-        print("SYS.PATH:  ", sys.path)
         #parse available ports
         self.backend_ports = os.getenv("BACKEND_PORTS", "7861")
         if "," in self.backend_ports:
@@ -40,7 +39,7 @@ class ComfyUIBackend(Backend):
 
         self.setup_pipelines()
         
-        start_backend("comfyui-playground", 0) #start the comfyui backend
+        start_backend("comfyui-playground", os.environ.get("COMFYUI-PLAYGROUND-DEVICE", 0)) #start the comfyui backend
 
     def _create_pipeline_env(self, pipeline):
         logger.info(f"Creating virtualenv for {pipeline}")
@@ -150,12 +149,13 @@ class ComfyUIBackend(Backend):
                 continue
 
             pipeline_settings = pipelines_files[pipeline] 
-            
             #------------------------------
             # install nodes for the pipeline
             #------------------------------ 
+            pipeline_venv = "comfyui-base"
             if 'nodes' in pipeline_settings:
                 #install the nodes in separate virtualenvs
+                pipeline_venv = pipeline
                 try:
                     #create the virtualenv if needed
                     virtualenv_root = os.getenv("PYENV_ROOT", "/root/.pyenv")
@@ -167,19 +167,7 @@ class ComfyUIBackend(Backend):
                 #install the nodes and additional requirements
                 for node in pipeline_settings['nodes']:
                     self._install_node(node, pipeline)
-
-                #create the pipeline runner config using first aviailable port
-                if len(self.backend_ports) == 0:
-                    logger.error(f"no backend ports available for {pipeline}, unable to create pipeline runner")
-                    continue
-
-                self.pipeline_ports[pipeline] = self.backend_ports.pop(0)
-                create_pipeline_runner_config(pipeline, self.pipeline_ports[pipeline], pipeline)
-            else:
-                #no extra nodes or requirements to install we can use the core venv
-                self.pipeline_ports[pipeline] = self.backend_ports.pop(0)
-                create_pipeline_runner_config(pipeline, self.pipeline_ports[pipeline], "comfyui-base")
-
+            
             #------------------------------
             # download models
             #------------------------------       
@@ -201,9 +189,24 @@ class ComfyUIBackend(Backend):
                 
                     self._download_model(pipeline_settings["inputs"][input]["url"], input_save_path)
 
-            #setup tracking of the pipeline
-            self.backend_runner_locks[pipeline] = asyncio.Lock()
-            self.backend_runner_last_used[pipeline] = 0
+            #------------------------------
+            # create the pipeline runner config(s)
+            #------------------------------
+            total_runners = 1
+            if "total_runners" in pipeline_settings:
+                total_runners = pipeline_settings["total_runners"]
+            
+            for i in range(total_runners):
+                if len(self.backend_ports) == 0:
+                    logger.error(f"no backend ports available for {pipeline}, unable to create pipeline runner")
+                    break
+                
+                self.pipeline_ports[f"{pipeline}-{i}"] = self.backend_ports.pop(0)
+                create_pipeline_runner_config(f"{pipeline}-{i}", self.pipeline_ports[f"{pipeline}-{i}"], pipeline_venv)
+
+                self.backend_runner_locks[f"{pipeline}-{i}"] = asyncio.Lock()
+                self.backend_runner_last_used[f"{pipeline}-{i}"] = time.time()
+            
 
         #release lock
         self.pipelines_lock.release()
@@ -229,87 +232,100 @@ class ComfyUIBackend(Backend):
             if not "prompt" in pipeline_settings:
                 raise ValueError(f"Prompt not found in pipeline settings: {pipeline_settings_path}")
         
-        backend_url = f"http://localhost:{self.pipeline_ports[pipeline_id]}"
+        #select runner that is available
+        runner_port = "0"
+        runner_id = ""
+        for runner in self.backend_runner_locks:
+            if pipeline_id in runner and not self.backend_runner_locks[runner].locked():
+                self.backend_runner_locks[runner].acquire()
+                runner_id = runner
+                runner_port = self.pipeline_ports[runner]
+        if runner_id == "":
+            raise ValueError(f"No available backend runner for pipeline {pipeline_id}.")
         
-        #client to send data to backend
-        client = httpx.AsyncClient()
-        backend_running = False
-        #check if backend is up, and start if not
+        backend_url = f"http://localhost:{runner_port}"
+        
+        #wrap to free the runner after processing
         try:
-            resp = await client.get(f"{backend_url}/system_stats", timeout=2)
-            if resp.status_code == 200:
-                logger.info(f"Backend already running for {pipeline_id}, using existing backend")
-                backend_running = True
-        except httpx.ConnectError as e:
-            logger.info(f"Backend not running, starting backend for {pipeline_id}: {e}")
-        
-        if not backend_running:
-            start_backend(pipeline_id, cuda_device)
+            #client to send data to backend
+            client = httpx.AsyncClient()
+            backend_running = False
+            #check if backend is up, and start if not
+            try:
+                resp = await client.get(f"{backend_url}/system_stats", timeout=.5)
+                if resp.status_code == 200:
+                    logger.info(f"Backend already running for {runner_id}, using existing backend")
+                    backend_running = True
+            except httpx.ConnectError as e:
+                logger.info(f"Backend not running, starting backend for {runner_id}: {e}")
+            #if not running, start the backend
+            if not backend_running:
+                start_backend(runner_id, cuda_device)
 
-            #wait for startup
-            while True:
-                await asyncio.sleep(1)
-                try:
-                    resp = await client.get(f"{backend_url}/system_stats", timeout=2)
-                    if resp.status_code == 200:
-                        break
-                    logger.info("waiting for comfyui to startup...")
-                except Exception as e:
-                    logger.error(f"Error connecting to ComfyUI backend: {e}")
+                #wait for startup
+                while True:
+                    await asyncio.sleep(1)
+                    try:
+                        resp = await client.get(f"{backend_url}/system_stats", timeout=2)
+                        if resp.status_code == 200:
+                            break
+                        logger.info("waiting for comfyui to startup...")
+                    except Exception as e:
+                        logger.error(f"Error connecting to ComfyUI backend: {e}")
 
-        #upload the files and add to the prompt
-        inputs_to_remove = []
-        for file in files:
-            filename, file_content, content_type = files[file]
+            #upload the files and add to the prompt
+            inputs_to_remove = []
+            for file in files:
+                filename, file_content, content_type = files[file]
 
-            upload_data = {
-                "overwrite": "true",
-                "type": "input"
-            }
+                upload_data = {
+                    "overwrite": "true",
+                    "type": "input"
+                }
+                
+                if content_type == "image/mask":
+                    upload_files = {"image": (filename, file_content, "image/png")}
+                    resp = await client.post(
+                        url=f"{backend_url}/upload/mask",
+                        data=upload_data,
+                        files=upload_files,
+                    )
+
+                    if resp.status_code != 200:
+                        raise ValueError(f"Failed to upload mask: {resp.text}")
+                elif "image/" in content_type:
+                    upload_files = {"image": (filename, file_content, content_type)}
+                    resp = await client.post(
+                        url=f"{backend_url}/upload/image",
+                        data=upload_data,
+                        files=upload_files,
+                    )
+
+                    if resp.status_code != 200:
+                        raise ValueError(f"Failed to upload image: {resp.text}")
+                
+                
+                result = resp.json()
+                if result['subfolder']:
+                    inputs_to_remove.append(f"/app/workspace/{result['type']}/{result['subfolder']}/{result['name']}")
+                else:
+                    inputs_to_remove.append(f"/app/workspace/{result['type']}/{result['name']}")
+                
+                #update the prompt with the uploaded file path
+                params[file] = result["name"]
+                
+            #add defaults if needed
+            if "defaults" in pipeline_settings:
+                for input in pipeline_settings["defaults"]:
+                    if not input in params:
+                        params[input] = pipeline_settings["defaults"][input]
+
+            #update the prompt for processing
+            prompt = json.dumps(pipeline_settings["prompt"])
+            prompt_with_data = self._update_prompt_fields(prompt, params)
+            logger.info(f"Prompt with data: {prompt_with_data}")
             
-            if content_type == "image/mask":
-                upload_files = {"image": (filename, file_content, "image/png")}
-                resp = await client.post(
-                    url=f"{backend_url}/upload/mask",
-                    data=upload_data,
-                    files=upload_files,
-                )
-
-                if resp.status_code != 200:
-                    raise ValueError(f"Failed to upload mask: {resp.text}")
-            elif "image/" in content_type:
-                upload_files = {"image": (filename, file_content, content_type)}
-                resp = await client.post(
-                    url=f"{backend_url}/upload/image",
-                    data=upload_data,
-                    files=upload_files,
-                )
-
-                if resp.status_code != 200:
-                    raise ValueError(f"Failed to upload image: {resp.text}")
-            
-            
-            result = resp.json()
-            if result['subfolder']:
-                inputs_to_remove.append(f"/app/workspace/{result['type']}/{result['subfolder']}/{result['name']}")
-            else:
-                inputs_to_remove.append(f"/app/workspace/{result['type']}/{result['name']}")
-            
-            #update the prompt with the uploaded file path
-            params[file] = result["name"]
-            
-        #add defaults if needed
-        if "defaults" in pipeline_settings:
-            for input in pipeline_settings["defaults"]:
-                if not input in params:
-                    params[input] = pipeline_settings["defaults"][input]
-
-        #update the prompt for processing
-        prompt = json.dumps(pipeline_settings["prompt"])
-        prompt_with_data = self._update_prompt_fields(prompt, params)
-        logger.info(f"Prompt with data: {prompt_with_data}")
-        #queue the prompt
-        async with self.backend_runner_locks[pipeline_id]:
+            #queue the prompt
             resp = await client.post(
                 url=f"{backend_url}/prompt",
                 json={"prompt":json.loads(prompt_with_data)},
@@ -352,39 +368,43 @@ class ComfyUIBackend(Backend):
                     break
 
                 logger.info(f"Waiting for prompt to be processed: {prompt_id}")
+                
             
-        
-        #download the output files and return
-        combined_output = []
-        outputs = prompt_result.get("outputs", {})
-        
-        seed = self._extract_seed_from_prompt(json.dumps(prompt_result.get("prompt", {})))
-        
-        for output_node in outputs:
-            for output_type in outputs[output_node]:
-                if output_type == "images" or output_type == "audio":
-                    for result in outputs[output_node][output_type]:
-                        result = await client.get(f"{backend_url}/view?filename={result['filename']}&subfolder={result['subfolder']}&type={result['type']}")
-                        if result.status_code != 200:
-                            raise ValueError(f"Failed to download result: {result.text}")
-                        
-                        result_bytes = io.BytesIO(result.content)
-                        if output_type == "images":
-                            pil_img = Image.open(result_bytes)
-                            combined_output.append({"url": image_to_data_url(pil_img), "seed": seed})
-                        elif output_type == "audio":
-                            combined_output.append({"url": audio_to_data_url(result_bytes)})
-                        elif output_type == "json":
-                            combined_output.append({"text": result.content})        
+            #download the output files and return
+            combined_output = []
+            outputs = prompt_result.get("outputs", {})
+            
+            seed = self._extract_seed_from_prompt(json.dumps(prompt_result.get("prompt", {})))
+            
+            for output_node in outputs:
+                for output_type in outputs[output_node]:
+                    if output_type == "images" or output_type == "audio":
+                        for result in outputs[output_node][output_type]:
+                            result = await client.get(f"{backend_url}/view?filename={result['filename']}&subfolder={result['subfolder']}&type={result['type']}")
+                            if result.status_code != 200:
+                                raise ValueError(f"Failed to download result: {result.text}")
+                            
+                            result_bytes = io.BytesIO(result.content)
+                            if output_type == "images":
+                                pil_img = Image.open(result_bytes)
+                                combined_output.append({"url": image_to_data_url(pil_img), "seed": seed})
+                            elif output_type == "audio":
+                                combined_output.append({"url": audio_to_data_url(result_bytes)})
+                            elif output_type == "json":
+                                combined_output.append({"text": result.content})        
 
-        try:
-            #remove the input files from the workspace
-            for input_file in inputs_to_remove:
-                if os.path.exists(input_file):
-                    os.remove(input_file)
-        except Exception as e:
-            logger.error(f"Failed to remove input file(s): {e}")
-        
+            try:
+                #remove the input files from the workspace
+                for input_file in inputs_to_remove:
+                    if os.path.exists(input_file):
+                        os.remove(input_file)
+            except Exception as e:
+                logger.error(f"Failed to remove input file(s): {e}")
+        finally:
+            #free the runner
+            if runner_id != "":
+                self.backend_runner_locks[runner_id].release()
+
         return combined_output
         
 

@@ -4,20 +4,19 @@ import re
 PIPELINE_CONF = "/etc/supervisor/conf.d/{pipeline_id}.conf"
 init_pyenv = 'eval "$(pyenv init -)" && eval "$(pyenv virtualenv-init -)"'
 
-def set_backend_device(pipeline_id, cuda_device=0):
+def set_backend_device_and_port(pipeline_id, cuda_device=0):
     pipeline_conf_file = PIPELINE_CONF.format(pipeline_id=pipeline_id)
     with open(pipeline_conf_file, 'r') as f:
         lines = f.readlines()
 
-    pattern = re.compile(r'(--cuda-device )(\S+)')
+    device_pattern = re.compile(r'(--cuda-device )(\S+)')
     updated_lines = []
 
     for line in lines:
         if line.strip().startswith('command=') and '--cuda-device ' in line:
-            line = pattern.sub(r'\g<1>' + str(cuda_device) + "'", line)
+            line = device_pattern.sub(f"--cuda-device {cuda_device}", line)
         
-        #print(f"Updated --cuda-device to {cuda_device} in {pipeline_conf_file}")
-        print(f"Updated --cuda-device: {line}")
+        print(f"Updated --cuda-device and port: {line}")
         updated_lines.append(line)
 
     with open(pipeline_conf_file, 'w') as f:
@@ -43,7 +42,7 @@ def start_backend(pipeline_id, cuda_device):
     Start the backend using the provided command.
     """
     if pipeline_id != "comfyui-playground":
-        set_backend_device(pipeline_id, cuda_device)
+        set_backend_device_and_port(pipeline_id, cuda_device)
 
     try:
         result = subprocess.run(f"supervisorctl -s unix:///tmp/supervisor.sock start {pipeline_id}", shell=True, check=True, capture_output=True, text=True)
