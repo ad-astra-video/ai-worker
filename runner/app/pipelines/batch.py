@@ -20,12 +20,28 @@ class BatchPipeline(Pipeline):
         self._safety_checker = SafetyChecker(device=safety_checker_device)
         #setup tracking for allocation GPUs to pipelines
         self.gpus_lock = asyncio.Lock()
-        self.gpu_device_locks = {i: asyncio.Lock() for i in range(torch.cuda.device_count())}
         self.gpus = [i for i in range(torch.cuda.device_count())]
+        logger.info(f"Available GPUs: {self.gpus}")
         self.pipeline_gpus = {}
+        self.pipeline_ports = {}
         self.pipeline_last_used = {}
+        self.pipeline_runner_locks = {}
         self.pipeline_restrictions = {}
 
+        #parse available ports
+        backend_ports = os.getenv("BACKEND_PORTS", "7861")
+        self.pipeline_ports = {} #dict of pipelines and assigned ports from available backend ports
+        if "," in backend_ports:
+            self.pipeline_ports = backend_ports.split(",")
+        elif "-" in backend_ports:
+            backend_ports = backend_ports.split("-")
+            self.pipeline_ports = [str(i) for i in range(int(backend_ports[0]), int(backend_ports[1])+1)]
+
+        if len(self.pipeline_ports) < len(self.gpus):
+            logger.error("Not enough backend ports for the number of GPUs.")
+            raise RuntimeError("Not enough backend ports for the number of GPUs.")
+        
+        
         #setup backends and pipelines
         self.backends = {}
         self.pipelines_backends = {}
@@ -51,54 +67,78 @@ class BatchPipeline(Pipeline):
 
     async def __call__(self, pipeline_name, model_id, params: Dict[str, any], files: Dict[str, any], **kwargs):
         pipeline_id = f"{pipeline_name}--{model_id.replace('/', '--')}"
+        runner_id = pipeline_id #used to add cuda_device and port to track
+        logger.info(f"Processing pipeline {pipeline_id}...")
         backend = self.pipelines_backends.get(pipeline_id, "")
         if backend == "":
             logger.error(f"No backend found for pipeline {pipeline_id}. pipelines_backends: {self.pipelines_backends}")
             raise ValueError(f"No backend found for pipeline {pipeline_id}.")
 
-        # reuse the GPU if the pipeline is already running
+        # reuse the GPU if the pipeline is already running and free
         cuda_device = -1
-        if pipeline_id in self.pipeline_gpus:
-            cuda_device = self.pipeline_gpus[pipeline_id]
-            logger.info(f"Pipeline {pipeline_id} is already running on GPU {cuda_device}. Reusing the GPU.")
+        port = -1
+        for pipeline_runner_id in self.pipeline_runner_locks:
+            if pipeline_runner_id.startswith(pipeline_id):
+                if not self.pipeline_runner_locks[pipeline_runner_id].locked():
+                    _, cuda_device, port = pipeline_runner_id.split("---")
+                    runner_id = pipeline_runner_id
+                    self.pipeline_last_used[pipeline_runner_id] = time.time()
+                    break
+        
+        if cuda_device != -1:
+            logger.info(f"Pipeline {pipeline_id} is already running on GPU {cuda_device}. Reusing the runner.")
         else:
             # if the pipeline is not running, allocate a GPU
             async with self.gpus_lock:
                 if len(self.gpus) > 0:
+                    logger.info(f"Allocating GPU for pipeline {pipeline_id} with backend {backend}.")
                     #if pipeline has restrictions, check if we can use the GPU
                     for device in self.gpus:
-                        if await self.passes_restrictions(self.pipeline_restrictions.get(pipeline_id, {}), device):
-                            cuda_device = device
-                            self.gpus.remove(cuda_device)
-                            break
+                        if pipeline_id in self.pipeline_restrictions:
+                            if await self.passes_restrictions(self.pipeline_restrictions.get(pipeline_id, {}), device):
+                                cuda_device = device
+                                self.gpus.remove(device)
+                                logger.info(f"Pipeline {pipeline_id} is using GPU {cuda_device} with restrictions.")
                         else:
                             #no restrictions, just use the first available GPU
                             cuda_device = self.gpus.pop(0)
-                    
-                    self.pipeline_gpus[pipeline_id] = cuda_device
+                            logger.info(f"Pipeline {pipeline_id} is using GPU {cuda_device} with no restrictions.")
+                        
+                        if cuda_device != -1:
+                            port = self.pipeline_ports.pop(0)
+                            runner_id = f"{pipeline_id}---{cuda_device}---{port}"
+                            break
                 else:
                     #stop the pipeline longest not used and use that GPU
                     sorted_pipelines = sorted(self.pipeline_last_used, key=self.pipeline_last_used.get)
-                    
-                    for running_pipeline_id in sorted_pipelines:
-                        cuda_device = self.pipeline_gpus[running_pipeline_id]
-                        if await self.passes_restrictions(self.pipeline_restrictions.get(running_pipeline_id, {}), cuda_device):
-                            async with self.gpu_device_locks[cuda_device]:
-                                await self.backends[backend].stop_pipeline(running_pipeline_id)
-                                self.pipeline_gpus[running_pipeline_id] = cuda_device
+                    for pipeline_runner_id in sorted_pipelines:
+                        _, cuda_device_str, port = pipeline_runner_id.split("---")
+                        cuda_device = int(cuda_device_str)
+                        passes = await self.passes_restrictions(self.pipeline_restrictions.get(pipeline_id, {}), cuda_device)
+                        if passes:
+                            pipeline_lock = self.pipeline_runner_locks[pipeline_runner_id]
+                            async with pipeline_lock:
+                                await self.backends[backend].stop_pipeline(pipeline_runner_id)
+                                del self.pipeline_runner_locks[pipeline_runner_id]
+                                del self.pipeline_last_used[pipeline_runner_id]
+                                #set to new runner id with stopped pipeline gpu and port
+                                runner_id = f"{pipeline_id}---{cuda_device}---{port}"
                                 break
-
+                
                 if cuda_device == -1:
-                    logger.info(f"Pipeline {pipeline_id} has no available GPUs that pass the restrictions, trying to stop a pipeline to free up a GPU.")
+                    logger.info(f"Pipeline {pipeline_id} has no available GPUs that pass the restrictions.")
                     return None
-                #track last used time for the pipeline
-                self.pipeline_last_used[pipeline_id] = time.time()
+                
+            #create a lock and track last used time for the pipeline
+            logger.info(f"Pipeline running with {runner_id}")
+            self.pipeline_last_used[runner_id] = time.time()
+            self.pipeline_runner_locks[runner_id] = asyncio.Lock()    
                 
         #get the GPU device lock for the allocated GPU, release it after processing
         start = time.time()
-        async with self.gpu_device_locks[cuda_device]:
+        async with self.pipeline_runner_locks[runner_id]:
             logger.info(f"Processing pipeline {pipeline_id} on GPU {cuda_device} with backend {backend}   waited={round(time.time()-start,2)}seconds.")
-            result = await self.backends[backend].process(cuda_device, pipeline_id, params, files, **kwargs)
+            result = await self.backends[backend].process(cuda_device, port, pipeline_id, params, files, **kwargs)
 
             if "safety_check" in kwargs:
                 if "images" in result:
