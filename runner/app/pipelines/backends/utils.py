@@ -17,19 +17,7 @@ def run_command(command):
         return result.stdout
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Command '{command}' failed with error: {e.stderr}")
-
-def start_playground(port, cuda_device):
-    """
-    Start the comfyui-playground using the provided command.
-    """
-    runner_id = create_pipeline_runner_config("comfyui-playground", port, cuda_device, "comfyui-playground")
-
-    try:
-        result = subprocess.run(f"supervisorctl -s unix:///tmp/supervisor.sock start {runner_id}", shell=True, check=True, capture_output=True, text=True)
-        return result.stdout
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"failed to start comfyui-playground: {e.stderr}")
-    
+   
 def start_backend(pipeline_id, port, cuda_device, venv_name="comfyui-base"):
     """
     Start the backend using the provided command.

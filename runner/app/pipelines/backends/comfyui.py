@@ -11,7 +11,7 @@ import os
 import httpx
 import asyncio
 from app.routes.utils import image_to_data_url, audio_to_data_url
-from app.pipelines.backends.utils import run_command, start_playground, start_backend, stop_backend, create_pipeline_runner_config
+from app.pipelines.backends.utils import run_command, start_backend, stop_backend
 import io
 import sys
 import threading
@@ -25,15 +25,16 @@ class ComfyUIBackend(Backend):
         self.pipelines_lock = threading.Lock()
         self.pipelines = {}
         self.pipeline_venvs = {}
-
+        #check if comfyui is installed
         self.setup_pipelines()
 
-        if os.environ.get("COMFYUI-PLAYGROUND-ENABLE", "false").lower() == "true":
-            start_playground(os.environ.get("COMFYUI-PLAYGROUND-PORT", "8188"), os.environ.get("COMFYUI-PLAYGROUND-DEVICE", 0)) #start the comfyui playground
-
     def _create_pipeline_env(self, pipeline):
+        pyenv_root = os.getenv("PYENV_ROOT", "/root/.pyenv")
         logger.info(f"Creating virtualenv for {pipeline}")
-        run_command(f"pyenv virtualenv --system-site-packages {pipeline}")
+        run_command(f"python -m venv /app/virtual_envs/{pipeline}")
+        run_command(f"ln -s /app/virtual_envs/{pipeline} {pyenv_root}/versions/{pipeline}")
+        #run_command(f"pyenv virtualenv --system-site-packages /app/virtual_envs/{pipeline}")
+        run_command(f"pyenv local {pipeline}")
         logger.info(f"Created virtualenv {pipeline}")
         logger.info(f"Installing pytorch and dependencies for {pipeline}")
         run_command(f"pyenv activate {pipeline} && pip install torch==2.7 torchvision torchaudio transformers diffusers numpy>=1.26.4 accelerate tqdm")
@@ -41,9 +42,9 @@ class ComfyUIBackend(Backend):
         logger.info(f"Installing comfyui dependencies for {pipeline}")
         run_command(f"pyenv activate {pipeline} && pip install -r /app/workspace/requirements.txt")
         logger.info(f"Installed comfyui dependencies for {pipeline}")
-        logger.info(f"Installing comfyui manager dependencies for {pipeline}")
-        run_command(f"pyenv activate {pipeline} && pip install -r /app/workspace/custom_nodes/ComfyUI-Manager/requirements.txt")
-        logger.info(f"Installed comfyui manager dependencies for {pipeline}")
+        #logger.info(f"Installing comfyui manager dependencies for {pipeline}")
+        #run_command(f"pyenv activate {pipeline} && pip install -r /app/workspace/custom_nodes/ComfyUI-Manager/requirements.txt")
+        #logger.info(f"Installed comfyui manager dependencies for {pipeline}")
     
     def _install_node(self, node, pipeline):
         if 'url' in node:
@@ -235,6 +236,7 @@ class ComfyUIBackend(Backend):
         #upload the files and add to the prompt
         inputs_to_remove = []
         for file in files:
+            logger.info(f"Uploading file {file} to backend")
             filename, file_content, content_type = files[file]
 
             upload_data = {
@@ -252,8 +254,8 @@ class ComfyUIBackend(Backend):
 
                 if resp.status_code != 200:
                     raise ValueError(f"Failed to upload mask: {resp.text}")
-            elif "image/" in content_type:
-                upload_files = {"image": (filename, file_content, content_type)}
+            elif "image/" in content_type or file == "image":
+                upload_files = {"image": (filename, file_content, "image/png")}
                 resp = await client.post(
                     url=f"{backend_url}/upload/image",
                     data=upload_data,
@@ -262,10 +264,9 @@ class ComfyUIBackend(Backend):
 
                 if resp.status_code != 200:
                     raise ValueError(f"Failed to upload image: {resp.text}")
-            
-            
+                        
             result = resp.json()
-            if result['subfolder']:
+            if 'subfolder' in result and result['subfolder']:
                 inputs_to_remove.append(f"/app/workspace/{result['type']}/{result['subfolder']}/{result['name']}")
             else:
                 inputs_to_remove.append(f"/app/workspace/{result['type']}/{result['name']}")
@@ -334,7 +335,7 @@ class ComfyUIBackend(Backend):
         outputs = prompt_result.get("outputs", {})
         
         seed = self._extract_seed_from_prompt(json.dumps(prompt_result.get("prompt", {})))
-        
+        output_type = ""
         for output_node in outputs:
             for output_type in outputs[output_node]:
                 if output_type == "images" or output_type == "audio":
@@ -351,7 +352,6 @@ class ComfyUIBackend(Backend):
                             combined_output.append({"url": audio_to_data_url(result_bytes)})
                         elif output_type == "json":
                             combined_output.append({"text": result.content})        
-
         try:
             #remove the input files from the workspace
             for input_file in inputs_to_remove:
@@ -360,7 +360,7 @@ class ComfyUIBackend(Backend):
         except Exception as e:
             logger.error(f"Failed to remove input file(s): {e}")
 
-        return combined_output
+        return {output_type: combined_output}
         
 
 

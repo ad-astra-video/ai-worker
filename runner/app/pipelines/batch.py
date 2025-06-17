@@ -11,6 +11,7 @@ from app.pipelines.utils import (
     SafetyChecker,
 )
 from app.pipelines.backends.comfyui import ComfyUIBackend
+from app.pipelines.backends.utils import start_playground
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,6 @@ class BatchPipeline(Pipeline):
                     self.pipelines_backends[pipeline_id] = "comfyui"
                     if not "comfyui" in self.backends:
                         self.backends["comfyui"] = ComfyUIBackend()
-                    
 
     async def __call__(self, pipeline_name, model_id, params: Dict[str, any], files: Dict[str, any], **kwargs):
         pipeline_id = f"{pipeline_name}--{model_id.replace('/', '--')}"
