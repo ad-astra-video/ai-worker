@@ -54,30 +54,35 @@ class BYOC(Pipeline):
         # Add audio transceiver
         self.audio_transceiver = self.pc.addTransceiver("audio", direction="sendrecv")
         
-        # Handle incoming video frames
-        @self.video_transceiver.receiver.on("track")
-        def on_video_track(track):
-            logging.info("Video track received")
+        # Handle incoming tracks at the peer connection level
+        @self.pc.on("track")
+        def on_track(track):
+            logging.info(f"Track received: {track.kind}")
             
-            async def process_incoming_frames():
-                while True:
-                    try:
-                        frame = await track.recv()
-                        # Convert AVVideoFrame to our VideoFrame format
-                        tensor = self._av_frame_to_tensor(frame)
-                        video_frame = VideoFrame(tensor, frame.pts, frame.time_base)
-                        
-                        # Get the corresponding request from our queue
-                        if not self.video_incoming_frames.empty():
-                            incoming_frame = await self.video_incoming_frames.get()
-                            result = incoming_frame.replace_tensor(tensor)
-                            await self.processed_frames_queue.put(result)
+            if track.kind == "video":
+                async def process_incoming_frames():
+                    while True:
+                        try:
+                            frame = await track.recv()
+                            # Convert AVVideoFrame to our VideoFrame format
+                            tensor = self._av_frame_to_tensor(frame)
+                            video_frame = VideoFrame(tensor, frame.pts, frame.time_base)
                             
-                    except Exception as e:
-                        logging.error(f"Error processing incoming video frame: {e}")
-                        break
+                            # Get the corresponding request from our queue
+                            if not self.video_incoming_frames.empty():
+                                incoming_frame = await self.video_incoming_frames.get()
+                                result = incoming_frame.replace_tensor(tensor)
+                                await self.processed_frames_queue.put(result)
+                                
+                        except Exception as e:
+                            logging.error(f"Error processing incoming video frame: {e}")
+                            break
+                
+                asyncio.create_task(process_incoming_frames())
             
-            asyncio.create_task(process_incoming_frames())
+            elif track.kind == "audio":
+                # Handle audio track if needed
+                logging.info("Audio track received but not processed")
 
     def _tensor_to_av_frame(self, tensor: torch.Tensor) -> AVVideoFrame:
         """Convert PyTorch tensor to AVVideoFrame"""
@@ -151,10 +156,7 @@ class BYOC(Pipeline):
 
     async def initialize(self, **params):
         """Initialize the BYOC pipeline with given parameters."""
-        new_params = ComfyUIParams(**params)
-        logging.info(f"Initializing BYOC Pipeline with prompt: {new_params.prompt}")
-        self.params = new_params
-        
+       
         # Establish WebRTC connection
         await self._create_webrtc_connection()
         
