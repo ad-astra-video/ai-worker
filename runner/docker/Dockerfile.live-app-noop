@@ -36,7 +36,8 @@ RUN pip install --no-cache-dir \
     --no-binary=av \
     av==14.0.1 \
     psutil==6.0.0 \
-    prometheus_client>=0.21.1
+    prometheus_client>=0.21.1 \
+    aiohttp
 
 # Set environment variables
 ENV MAX_WORKERS=1
