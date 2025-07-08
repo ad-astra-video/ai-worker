@@ -129,12 +129,16 @@ class BYOC(Pipeline):
             await self.pc.setLocalDescription(offer)
             
             # Send offer to capability_url/offer endpoint
+            # Ensure HTTP protocol is used
+            offer_url = self.capability_url
+           
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    f"{self.capability_url}/offer",
-                    json={
-                        "sdp": self.pc.localDescription.sdp,
-                        "type": self.pc.localDescription.type
+                    f"{offer_url}/offer",
+                    json={"offer": {
+							"sdp": self.pc.localDescription.sdp,
+							"type": self.pc.localDescription.type
+						}
                     }
                 ) as response:
                     if response.status == 200:
