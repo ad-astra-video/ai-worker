@@ -333,7 +333,7 @@ class ComfyUIBackend(Backend):
         #download the output files and return
         combined_output = []
         outputs = prompt_result.get("outputs", {})
-        
+        logger.debug(f"Outputs: {outputs}")
         seed = self._extract_seed_from_prompt(json.dumps(prompt_result.get("prompt", {})))
         output_type = ""
         for output_node in outputs:
