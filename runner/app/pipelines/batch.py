@@ -208,6 +208,6 @@ class BatchPipeline(Pipeline):
         """
         
         for backend in self.backends.values():
-            asyncio.to_thread(backend.setup_pipelines)
+            await asyncio.to_thread(backend.setup_pipelines)
         
     
