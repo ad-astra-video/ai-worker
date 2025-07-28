@@ -11,7 +11,6 @@ from app.pipelines.utils import (
     SafetyChecker,
 )
 from app.pipelines.backends.comfyui import ComfyUIBackend
-from app.pipelines.backends.utils import start_playground
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +206,8 @@ class BatchPipeline(Pipeline):
         """
         Refresh the list of pipelines.
         """
-        for backend in self.backends:
-            asyncio.to_thread(self.backend.setup_pipelines)
+        
+        for backend in self.backends.values():
+            asyncio.to_thread(backend.setup_pipelines)
         
     

@@ -49,6 +49,7 @@ def create_pipeline_runner_config(pipeline_id, port, cuda_device, venv_name):
     #   --disable-smart-memory
     #   --cache-none
     runner_id = f"{pipeline_id}---{cuda_device}---{port}"
+    hf_token = os.getenv("HF_TOKEN", "")
     config = """
     [program:{runner_id}]
     command=/bin/bash -c 'eval "$(pyenv init -)" && eval "$(pyenv virtualenv-init -)" && pyenv activate $PIPELINE_VENV && python -u /app/workspace/main.py --disable-cuda-malloc --listen 0.0.0.0 --port {port} --cuda-device {cuda_device}'
@@ -59,9 +60,9 @@ def create_pipeline_runner_config(pipeline_id, port, cuda_device, venv_name):
     stdout_logfile_maxbytes=0
     redirect_stderr=true
     autorestart=true
-    environment=PYTHONUNBUFFERED=1,PIPELINE_VENV={venv_name},PYTHONPATH=/root/.pyenv/versions/comfyui-base
+    environment=PYTHONUNBUFFERED=1,HF_TOKEN={hf_token},PIPELINE_VENV={venv_name},PYTHONPATH=/root/.pyenv/versions/comfyui-base
     """
-    config = config.format(runner_id=runner_id, port=port, cuda_device=cuda_device, venv_name=venv_name)
+    config = config.format(runner_id=runner_id, port=port, cuda_device=cuda_device, venv_name=venv_name, hf_token=hf_token)
     with open(f"/etc/supervisor/conf.d/{runner_id}.conf", "w") as f:
         f.write(config)
     

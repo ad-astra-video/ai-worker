@@ -402,6 +402,14 @@ def resumable_download(url, output_path, chunk_size=1024 * 1024):
         headers["Range"] = f"bytes={existing_size}-"
         mode = "ab"
 
+    if "huggingface.co" in url:
+        #add auth token if available
+        token = os.environ.get("HF_TOKEN")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        else:
+            logger.warning("No Hugging Face token found, proceeding without authentication.")
+            
     # Make request with Range header
     response = requests.get(url, headers=headers, stream=True)
 
