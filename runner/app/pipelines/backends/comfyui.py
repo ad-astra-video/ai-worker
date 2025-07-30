@@ -102,7 +102,7 @@ class ComfyUIBackend(Backend):
     
     def _extract_seed_from_prompt(self, prompt: str) -> int:
         # Extract the seed from the prompt using regex
-        match = re.search(r'("seed": )(\d+)', prompt)
+        match = re.search(r'("noise_seed": )(\d+)', prompt)
         if match:
             return int(match.group(2))
         return None
