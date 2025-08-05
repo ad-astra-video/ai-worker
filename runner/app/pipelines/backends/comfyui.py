@@ -53,7 +53,7 @@ class ComfyUIBackend(Backend):
             node_name = node['name']
             node_path = os.path.join(custom_nodes_path, node_name)
             if not os.path.exists(node_path):
-                logger.info(f"Installing node {node_name} from {node_url} to {node_path}")
+                logger.debug(f"Installing node {node_name} from {node_url} to {node_path}")
                 repo = Repo.clone_from(node_url, node_path)
                 if "branch" in node:
                     repo.git.checkout(node["branch"])
@@ -63,7 +63,7 @@ class ComfyUIBackend(Backend):
                 logger.info(f"Node {node_name} installed at {node_path}")
             else:
                 if "auto_update" in node and node["auto_update"]:
-                    logger.info(f"Updating node {node_name} from {node_url} to {node_path}")
+                    logger.debug(f"Updating node {node_name} from {node_url} to {node_path}")
                     repo = Repo(node_path)
                     repo.git.reset('--hard')
                     for remote in repo.remotes:
@@ -76,29 +76,29 @@ class ComfyUIBackend(Backend):
                     if os.path.exists(node_path+"/requirements.txt"):
                         output = run_command(f"pyenv activate {pipeline} && pip install -r {node_path}/requirements.txt")
                         logger.debug(output)
-                    logger.info(f"Node {node_name} updated at {node_path}")
+                    logger.debug(f"Node {node_name} updated at {node_path}")
                 else:
-                    logger.info(f"Node {node_name} already installed at {node_path} (auto_update not enabled)")
+                    logger.debug(f"Node {node_name} already installed at {node_path} (auto_update not enabled)")
         if 'addl_requirements' in node:
             if node["addl_requirements"] != "":
                 requirements_list = node['addl_requirements'].split(",")
                 for req in requirements_list:
-                    logger.info(f"Installing additional requirements {req} for node {node_name}")
+                    logger.debug(f"Installing additional requirements {req} for node {node_name}")
                     run_command(f"pyenv activate {pipeline} && pip install {req}")
             
     def _download_model(self, model_url, model_path):
         file_path = "/app/workspace/"+model_path
         # Check if the model is already downloaded
         if os.path.exists(file_path):
-            logger.info(f"File {file_path} already exists, skipping download.")
+            logger.debug(f"File {file_path} already exists, skipping download.")
             return
-        logger.info(f"Downloading {model_url} → {file_path}")
+        logger.debug(f"Downloading {model_url} → {file_path}")
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         #download the model
         resumable_download(model_url, file_path)
    
     def _update_prompt_fields(self, prompt: str, data: dict) -> str:
-        return re.sub(r"\|([^|]+)\|", lambda m: str(data.get(m.group(1), m.group(0))), prompt)
+        return re.sub(r"\|([^|]+)\|", lambda m: str(data.get(m.group(1), m.group(0))), json.dumps(prompt))
     
     def _extract_seed_from_prompt(self, prompt: str) -> int:
         # Extract the seed from the prompt using regex
