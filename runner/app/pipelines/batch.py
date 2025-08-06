@@ -63,6 +63,8 @@ class BatchPipeline(Pipeline):
                     self.pipelines_backends[pipeline_id] = "comfyui"
                     if not "comfyui" in self.backends:
                         self.backends["comfyui"] = ComfyUIBackend()
+        logger.info(f"Available pipelines: {json.dumps(self.pipelines_backends, indent=2)}")
+        logger.info(f"Pipelines restrictions: {json.dumps(self.pipeline_restrictions, indent=2)}")
 
     async def __call__(self, pipeline_name, model_id, params: Dict[str, any], files: Dict[str, any], **kwargs):
         pipeline_id = f"{pipeline_name}--{model_id.replace('/', '--')}"
