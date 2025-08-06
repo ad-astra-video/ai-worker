@@ -98,8 +98,33 @@ class ComfyUIBackend(Backend):
         resumable_download(model_url, file_path)
    
     def _update_prompt_fields(self, prompt: str, data: dict) -> str:
-        return re.sub(r"\|([^|]+)\|", lambda m: str(data.get(m.group(1), m.group(0))), json.dumps(prompt))
-    
+        
+        def make_json_safe(text):
+            """
+            Make a string JSON-safe by properly escaping special characters.
+            
+            Args:
+                text (str): The input string to make JSON-safe
+                
+            Returns:
+                str: JSON-safe escaped string
+            """
+            if not isinstance(text, str):
+                return text
+            
+            # Use json.dumps to properly escape the string, then remove the surrounding quotes
+            escaped = json.dumps(text)[1:-1]
+            return escaped
+        
+        def replace_with_escaped(match):
+            key = match.group(1)
+            value = data.get(key, match.group(0))  # Default to original if key not found
+            if isinstance(value, str):
+                return make_json_safe(value)
+            return str(value)
+        
+        return re.sub(r"\|([^|]+)\|", replace_with_escaped, prompt)
+
     def _extract_seed_from_prompt(self, prompt: str) -> int:
         # Extract the seed from the prompt using regex
         match = re.search(r'("(?:noise_)?seed": )(\d+)', prompt)
