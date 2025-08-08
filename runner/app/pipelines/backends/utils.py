@@ -52,7 +52,7 @@ def create_pipeline_runner_config(pipeline_id, port, cuda_device, venv_name):
     hf_token = os.getenv("HF_TOKEN", "")
     config = """
     [program:{runner_id}]
-    command=/bin/bash -c 'eval "$(pyenv init -)" && eval "$(pyenv virtualenv-init -)" && pyenv activate $PIPELINE_VENV && python -u /app/workspace/main.py --disable-cuda-malloc --disable-smart-memory --listen 0.0.0.0 --port {port} --cuda-device {cuda_device}'
+    command=/bin/bash -c 'eval "$(pyenv init -)" && eval "$(pyenv virtualenv-init -)" && pyenv activate $PIPELINE_VENV && python -u /app/workspace/main.py --disable-cuda-malloc --listen 0.0.0.0 --port {port} --cuda-device {cuda_device}'
     autostart=false
     startretries=0
     priority=3
