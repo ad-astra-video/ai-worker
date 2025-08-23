@@ -1429,11 +1429,23 @@ components:
           type: string
           title: Version
           description: The version of the Runner
+        video_ingress:
+          type: boolean
+          title: Video Ingress
+        video_egress:
+          type: boolean
+          title: Video Egress
+        data_output:
+          type: boolean
+          title: Data Output
       type: object
       required:
       - pipeline
       - model_id
       - version
+      - video_ingress
+      - video_egress
+      - data_output
       title: Version
     VideoResponse:
       properties:

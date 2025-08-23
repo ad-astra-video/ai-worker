@@ -10,6 +10,9 @@ class Version(BaseModel):
     pipeline: str
     model_id: str
     version: str = Field(..., description="The version of the Runner")
+    video_ingress: bool
+    video_egress: bool
+    data_output: bool
 
 class Pipeline(ABC):
     @abstractmethod

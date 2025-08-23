@@ -12,4 +12,7 @@ def version() -> Version:
         pipeline=os.environ["PIPELINE"],
         model_id=os.environ["MODEL_ID"],
         version=os.environ["VERSION"],
+        video_ingress=os.environ.get("VIDEO_INGRESS", True),
+        video_egress=os.environ.get("VIDEO_EGRESS", True),
+        data_output=os.environ.get("DATA_OUTPUT", True),
     )
